@@ -6,8 +6,8 @@
     <title>Yarn Man - Phase 1</title>
     <style>
         :root {
-            --water: #6B8FA8;
-            --land: #A8BC86;
+            --water: #A9C2C9;
+            --land: #E3DBc8;
             --ui-bg: rgba(244, 241, 234, 0.95);
             --ui-border: #8A7B66;
             --text: #3e3832;
@@ -309,189 +309,53 @@ function renderBackground() {
     bgCanvas.width = width;
     bgCanvas.height = height;
 
-    // --- Water: North Sea grey-blue gradient ---
-    let waterGrad = bgCtx.createLinearGradient(0, 0, 0, height);
-    waterGrad.addColorStop(0,   '#5E7F9C');
-    waterGrad.addColorStop(0.5, '#6B8FA8');
-    waterGrad.addColorStop(1,   '#7DA0B8');
-    bgCtx.fillStyle = waterGrad;
+    // Fill Water
+    bgCtx.fillStyle = '#A9C2C9';
     bgCtx.fillRect(0, 0, width, height);
 
-    // Subtle wave ripples
-    for (let i = 0; i < 40; i++) {
-        bgCtx.strokeStyle = 'rgba(255,255,255,0.06)';
-        bgCtx.lineWidth = 0.6 + Math.random() * 0.8;
-        bgCtx.beginPath();
-        bgCtx.arc(Math.random() * width, Math.random() * height,
-                  10 + Math.random() * 22, 0.15, Math.PI * 0.85);
-        bgCtx.stroke();
-    }
-
-    // --- Island – Scotland narrow at top, England wide below ---
-    const margin   = width * 0.09;
-    const segments = 24;
-
-    let landGrad = bgCtx.createLinearGradient(0, 0, 0, height);
-    landGrad.addColorStop(0,    '#828F6E');
-    landGrad.addColorStop(0.25, '#96AA7A');
-    landGrad.addColorStop(0.60, '#A8BC86');
-    landGrad.addColorStop(1.0,  '#BDCE94');
-
+    // Draw Island Landmass
+    bgCtx.fillStyle = '#E3DBc8';
     bgCtx.beginPath();
-    bgCtx.moveTo(width * 0.32 + Math.random() * 40 - 20, margin);
 
-    for (let i = 1; i <= segments; i++) {
-        let t = i / segments;
-        let y = margin + (height - 2 * margin) * t;
-        let scotPull = t < 0.28 ? ((0.28 - t) / 0.28) * width * 0.22 : 0;
-        bgCtx.lineTo((width - margin) - scotPull + (Math.random() * 70 - 35), y);
+    const margin = width * 0.1;
+    const islandWidth = width - margin * 2;
+    const segments = 20;
+
+    bgCtx.moveTo(margin + Math.random()*50, margin);
+
+    // Right side
+    for(let i=1; i<=segments; i++) {
+        let y = margin + (height - 2*margin) * (i/segments);
+        let x = width - margin + (Math.random() * 80 - 40);
+        bgCtx.lineTo(x, y);
     }
-    bgCtx.lineTo(width / 2 + Math.random() * 30 - 15, height - margin + 40);
-    for (let i = segments - 1; i >= 0; i--) {
-        let t = i / segments;
-        let y = margin + (height - 2 * margin) * t;
-        let scotPull = t < 0.28 ? ((0.28 - t) / 0.28) * width * 0.22 : 0;
-        bgCtx.lineTo(margin + scotPull + (Math.random() * 70 - 35), y);
+    // Bottom
+    bgCtx.lineTo(width/2, height - margin + 40);
+
+    // Left side
+    for(let i=segments-1; i>=0; i--) {
+        let y = margin + (height - 2*margin) * (i/segments);
+        let x = margin + (Math.random() * 80 - 40);
+        bgCtx.lineTo(x, y);
     }
 
     bgCtx.closePath();
-    bgCtx.fillStyle = landGrad;
     bgCtx.fill();
-    bgCtx.lineWidth = 3;
-    bgCtx.strokeStyle = '#8A9E6C';
+    bgCtx.lineWidth = 4;
+    bgCtx.strokeStyle = '#D1C6AC';
     bgCtx.stroke();
 
-    // Terrain overlays – wrapped in try/catch so a bad API never kills the map
-    try {
-        // --- Scottish Highlands (top 28%): heather + rocks + peat ---
-        let highWash = bgCtx.createLinearGradient(0, 0, 0, height * 0.34);
-        highWash.addColorStop(0,   'rgba(85,75,70,0.30)');
-        highWash.addColorStop(0.7, 'rgba(85,75,70,0.08)');
-        highWash.addColorStop(1,   'rgba(85,75,70,0.00)');
-        bgCtx.fillStyle = highWash;
-        bgCtx.fillRect(0, 0, width, height * 0.36);
-
-        // Heather blobs (purple-mauve)
-        for (let i = 0; i < 26; i++) {
-            bgCtx.fillStyle = 'rgba(' + (118 + Math.floor(Math.random()*38)) + ','
-                                      + (80  + Math.floor(Math.random()*28)) + ','
-                                      + (128 + Math.floor(Math.random()*38)) + ',0.40)';
-            bgCtx.beginPath();
-            bgCtx.arc(width * 0.12 + Math.random() * width * 0.76,
-                      height * 0.01 + Math.random() * height * 0.26,
-                      14 + Math.random() * 55, 0, Math.PI * 2);
-            bgCtx.fill();
-        }
-
-        // Peat / bog patches
-        for (let i = 0; i < 12; i++) {
-            bgCtx.fillStyle = 'rgba(60,50,40,' + (0.16 + Math.random() * 0.20) + ')';
-            bgCtx.beginPath();
-            bgCtx.arc(width  * 0.14 + Math.random() * width  * 0.72,
-                      height * 0.01 + Math.random() * height * 0.25,
-                      10 + Math.random() * 38, 0, Math.PI * 2);
-            bgCtx.fill();
-        }
-
-        // Rocky outcrops (irregular polygons)
-        for (let i = 0; i < 18; i++) {
-            let px = width  * 0.12 + Math.random() * width  * 0.76;
-            let py = height * 0.01 + Math.random() * height * 0.26;
-            let sides = 5 + Math.floor(Math.random() * 4);
-            let r  = 6 + Math.random() * 22;
-            let gr = 88 + Math.floor(Math.random() * 28);
-            bgCtx.fillStyle = 'rgba(' + gr + ',' + (gr-2) + ',' + (gr-6) + ','
-                            + (0.36 + Math.random() * 0.28) + ')';
-            bgCtx.beginPath();
-            for (let j = 0; j < sides; j++) {
-                let ang = (j / sides) * Math.PI * 2 + Math.random() * 0.35;
-                let rr  = r * (0.65 + Math.random() * 0.70);
-                if (j === 0) bgCtx.moveTo(px + rr * Math.cos(ang), py + rr * 0.62 * Math.sin(ang));
-                else         bgCtx.lineTo(px + rr * Math.cos(ang), py + rr * 0.62 * Math.sin(ang));
-            }
-            bgCtx.closePath();
-            bgCtx.fill();
-        }
-
-        // --- Northern England moorland blobs ---
-        for (let i = 0; i < 16; i++) {
-            let g = 80 + Math.floor(Math.random() * 30);
-            bgCtx.fillStyle = 'rgba(' + (g-10) + ',' + (110 + Math.floor(Math.random()*30)) + ',' + (g-20) + ',0.20)';
-            bgCtx.beginPath();
-            bgCtx.arc(width  * 0.08 + Math.random() * width  * 0.84,
-                      height * 0.28 + Math.random() * height * 0.28,
-                      28 + Math.random() * 72, 0, Math.PI * 2);
-            bgCtx.fill();
-        }
-
-        // --- Patchwork fields (southern England) ---
-        var fieldPalette = [[155,185,112],[138,168,98],[172,190,132],
-                            [148,176,105],[178,160,106],[126,158,88],[192,186,138]];
-        for (let i = 0; i < 55; i++) {
-            let col = fieldPalette[Math.floor(Math.random() * fieldPalette.length)];
-            let fw  = 36 + Math.random() * 88;
-            let fh  = 28 + Math.random() * 65;
-            bgCtx.save();
-            bgCtx.translate(width  * 0.07 + Math.random() * width  * 0.86,
-                            height * 0.44 + Math.random() * height * 0.53);
-            bgCtx.rotate((Math.random() - 0.5) * 0.28);
-            bgCtx.fillStyle   = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (0.28 + Math.random()*0.24) + ')';
-            bgCtx.fillRect(-fw/2, -fh/2, fw, fh);
-            bgCtx.strokeStyle = 'rgba(42,68,28,' + (0.20 + Math.random()*0.20) + ')';
-            bgCtx.lineWidth   = 1.5;
-            bgCtx.strokeRect(-fw/2, -fh/2, fw, fh);
-            bgCtx.restore();
-        }
-
-        // Woodland clusters
-        for (let i = 0; i < 18; i++) {
-            let tx = width  * 0.08 + Math.random() * width  * 0.84;
-            let ty = height * 0.26 + Math.random() * height * 0.68;
-            for (let j = 0; j < 3 + Math.floor(Math.random() * 6); j++) {
-                let tg = 75 + Math.floor(Math.random() * 35);
-                bgCtx.fillStyle = 'rgba(' + (tg-28) + ',' + tg + ',' + (tg-38) + ','
-                                + (0.50 + Math.random() * 0.30) + ')';
-                bgCtx.beginPath();
-                bgCtx.arc(tx + Math.random()*26-13, ty + Math.random()*20-10,
-                          5 + Math.random() * 10, 0, Math.PI * 2);
-                bgCtx.fill();
-            }
-        }
-
-        // Rolling hill shading (radial gradient circles)
-        for (let i = 0; i < 10; i++) {
-            let hx = width  * 0.10 + Math.random() * width  * 0.80;
-            let hy = height * 0.22 + Math.random() * height * 0.68;
-            let hr = 55 + Math.random() * 130;
-            let hg = bgCtx.createRadialGradient(hx, hy, 0, hx, hy, hr);
-            hg.addColorStop(0,   'rgba(255,255,255,0.10)');
-            hg.addColorStop(0.5, 'rgba(255,255,255,0.03)');
-            hg.addColorStop(1,   'rgba(0,0,0,0.06)');
-            bgCtx.fillStyle = hg;
-            bgCtx.beginPath();
-            bgCtx.arc(hx, hy, hr, 0, Math.PI * 2);
-            bgCtx.fill();
-        }
-    } catch(e) {
-        // Terrain overlays failed — island base still visible
+    // Add some soft green terrain patches
+    for(let i=0; i<30; i++) {
+        bgCtx.fillStyle = 'rgba(164, 184, 137, 0.4)';
+        bgCtx.beginPath();
+        let px = margin * 2 + Math.random() * (islandWidth - margin*2);
+        let py = margin * 2 + Math.random() * (height - margin*4);
+        bgCtx.arc(px, py, 30 + Math.random()*80, 0, Math.PI*2);
+        bgCtx.fill();
     }
 
     bgRendered = true;
-}
-
-// Portable rounded-rect path (ctx.roundRect not available on older Safari)
-function roundedRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
 }
 
 // -- Entity Definitions --
@@ -535,7 +399,8 @@ class Farm {
 
         // Price Tag
         ctx.fillStyle = 'white';
-        roundedRect(ctx, this.x + 10, this.y - 25, 24, 16, 4);
+        ctx.beginPath();
+        ctx.roundRect(this.x + 10, this.y - 25, 24, 16, 4);
         ctx.fill();
         ctx.strokeStyle = '#8A7B66';
         ctx.lineWidth = 1;
@@ -613,7 +478,8 @@ class Factory {
 
         // Price Tag
         ctx.fillStyle = '#f4f1ea';
-        roundedRect(ctx, this.x - 30, this.y - 35, 26, 18, 4);
+        ctx.beginPath();
+        ctx.roundRect(this.x - 30, this.y - 35, 26, 18, 4);
         ctx.fill();
         ctx.strokeStyle = '#B35B47';
         ctx.lineWidth = 1;
