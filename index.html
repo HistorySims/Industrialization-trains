@@ -1,1006 +1,719 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Yarn Man - Phase 1</title>
-    <style>
-        :root {
-            --water: #A9C2C9;
-            --land: #E3DBc8;
-            --ui-bg: rgba(244, 241, 234, 0.95);
-            --ui-border: #8A7B66;
-            --text: #3e3832;
-            --accent: #B35B47;
-            --green: #4F7942;
-        }
-
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            background-color: var(--water);
-            font-family: 'Georgia', serif;
-            color: var(--text);
-            overflow: hidden; /* We manage scrolling via a wrapper */
-            user-select: none;
-            -webkit-user-select: none;
-        }
-
-        /* The scrollable world container */
-        #world-container {
-            width: 100vw;
-            height: 100vh;
-            overflow-y: auto;
-            overflow-x: hidden;
-            position: relative;
-            scroll-behavior: smooth;
-        }
-
-        #gameCanvas {
-            display: block;
-            /* Height will be set via JS to 3x viewport */
-        }
-
-        /* UI Overlays */
-        .ui-panel {
-            position: fixed;
-            background: var(--ui-bg);
-            border: 2px solid var(--ui-border);
-            border-radius: 8px;
-            padding: 15px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            pointer-events: auto;
-            z-index: 10;
-        }
-
-        #top-bar {
-            top: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            gap: 30px;
-            font-size: 1.2rem;
-            font-weight: bold;
-            padding: 10px 25px;
-        }
-
-        .cash-anim {
-            color: var(--green);
-            transition: color 0.2s;
-        }
-
-        #route-manager, #build-modal, #phase1-modal {
-            display: none;
-            flex-direction: column;
-            gap: 10px;
-            width: 300px;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-        }
-
-        #route-manager {
-            top: auto;
-            bottom: 20px;
-            transform: translateX(-50%);
-        }
-
-        h2 {
-            margin: 0 0 10px 0;
-            font-size: 1.3rem;
-            color: var(--accent);
-            border-bottom: 1px solid var(--ui-border);
-            padding-bottom: 5px;
-        }
-
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            margin: 5px 0;
-            font-size: 1.1rem;
-        }
-
-        .profit-positive { color: var(--green); font-weight: bold; }
-        .profit-negative { color: var(--accent); font-weight: bold; }
-
-        button {
-            background: var(--ui-bg);
-            border: 1px solid var(--ui-border);
-            border-radius: 4px;
-            padding: 8px 15px;
-            font-family: inherit;
-            font-size: 1rem;
-            cursor: pointer;
-            color: var(--text);
-            transition: all 0.1s;
-        }
-
-        button:hover { background: #e8e2d5; }
-        button:active { background: #dcd4c3; transform: scale(0.98); }
-        button.primary { background: var(--green); color: white; border-color: #2e4a25; }
-        button.primary:hover { background: #5c8c4e; }
-        button.danger { background: var(--accent); color: white; border-color: #7a3d2e; }
-        button.danger:hover { background: #c26a58; }
-
-        .btn-group {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            margin-top: 10px;
-        }
-
-        .hint {
-            position: fixed;
-            top: 70px;
-            width: 100%;
-            text-align: center;
-            pointer-events: none;
-            color: #555;
-            font-style: italic;
-            font-size: 0.9rem;
-            text-shadow: 1px 1px 0px rgba(255,255,255,0.8);
-            z-index: 5;
-            opacity: 1;
-            transition: opacity 1s;
-        }
-
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Yarn Man</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body,html{width:100%;height:100%;background:#5E7F9C;font-family:Georgia,serif;color:#3e3832;overflow:hidden;user-select:none;-webkit-user-select:none}
+#world{width:100vw;height:100vh;overflow-y:auto;overflow-x:hidden;position:relative}
+canvas{display:block;touch-action:pan-y}
+.panel{position:fixed;background:rgba(244,241,234,.96);border:2px solid #8A7B66;border-radius:8px;padding:14px 18px;box-shadow:0 4px 16px rgba(0,0,0,.18);z-index:10}
+#hud{top:10px;left:50%;transform:translateX(-50%);display:flex;gap:28px;font-size:1.15rem;font-weight:bold;padding:8px 22px;white-space:nowrap}
+#hud .cash{color:#4F7942}
+.hint{position:fixed;top:62px;width:100%;text-align:center;pointer-events:none;color:#444;font-style:italic;font-size:.86rem;text-shadow:1px 1px 0 rgba(255,255,255,.7);z-index:5;opacity:1;transition:opacity 1.2s}
+.modal{display:none;flex-direction:column;gap:8px;width:300px;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center}
+.modal.bottom{top:auto;bottom:18px;transform:translateX(-50%)}
+.modal h2{margin:0 0 8px;font-size:1.15rem;color:#B35B47;border-bottom:1px solid #8A7B66;padding-bottom:4px}
+.row{display:flex;justify-content:space-between;margin:3px 0;font-size:1rem}
+.pos{color:#4F7942;font-weight:bold}.neg{color:#B35B47;font-weight:bold}
+hr.sep{border:0;border-top:1px dashed #8A7B66;margin:4px 0}
+.btns{display:flex;gap:8px;justify-content:center;margin-top:8px}
+button{background:rgba(244,241,234,.95);border:1px solid #8A7B66;border-radius:4px;padding:7px 14px;font-family:inherit;font-size:.93rem;cursor:pointer;color:#3e3832}
+button:active{transform:scale(.97)}
+button.go{background:#4F7942;color:#fff;border-color:#2e4a25}
+button.rm{background:#B35B47;color:#fff;border-color:#7a3d2e}
+button.cloth{background:#5B6DAF;color:#fff;border-color:#3A4A7A}
+button:disabled{opacity:.4;cursor:default}
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:.8rem;font-weight:bold;margin-left:4px}
+.tag.wool{background:#E8DCC8;color:#7A5A3A}
+.tag.cloth{background:#D0D8F0;color:#3A4A7A}
+</style>
 </head>
 <body>
+<div id="world"><canvas id="c"></canvas></div>
+<div id="hud" class="panel"><div>Bank: $<span class="cash" id="cash">50</span></div><div>Day <span id="day">1</span></div></div>
+<div id="hint" class="hint">Drag from a Farm to a Factory for wool routes. Drag from a Factory to a City for cloth routes.</div>
 
-<div id="world-container">
-    <canvas id="gameCanvas"></canvas>
+<div id="buildDlg" class="panel modal">
+<h2 id="bTitle">New Route</h2>
+<div class="row"><span id="bFromLabel">From</span><span>$<span id="ba"></span></span></div>
+<div class="row"><span>Transport</span><span>$<span id="bt"></span></span></div>
+<div class="row"><span id="bToLabel">To</span><span>$<span id="bb"></span></span></div>
+<hr class="sep">
+<div class="row"><span>Profit / trip</span><span id="bn"></span></div>
+<div class="btns"><button id="bCancel">Cancel</button><button id="bBuild" class="go">Build</button></div>
 </div>
 
-<!-- UI Elements -->
-<div id="top-bar" class="ui-panel">
-    <div>Bank: $<span id="ui-cash">50</span></div>
-    <div>Day: <span id="ui-day">1</span></div>
+<div id="mgr" class="panel modal bottom">
+<h2>Route</h2>
+<div class="row"><span>Type</span><span id="mType"></span></div>
+<div class="row"><span>Carts</span><span id="mc"></span></div>
+<div class="row"><span>Profit / trip</span><span id="mp"></span></div>
+<div class="btns"><button id="mBuy" class="go">Buy Cart ($20)</button><button id="mDel" class="rm">Delete</button></div>
+<button id="mClose" style="margin-top:6px;width:100%">Close</button>
 </div>
 
-<div id="hint" class="hint">Scroll up to discover more farms. Click and drag from a Farm to a Factory to build a route.</div>
-
-<!-- Build Route Modal -->
-<div id="build-modal" class="ui-panel">
-    <h2>Proposed Route</h2>
-    <div class="stat-row"><span>Farm Ask:</span> $<span id="bm-ask">0</span></div>
-    <div class="stat-row"><span>Transport Cost:</span> $<span id="bm-trans">0</span></div>
-    <div class="stat-row"><span>Factory Bid:</span> $<span id="bm-bid">0</span></div>
-    <hr style="border: 0; border-top: 1px dashed var(--ui-border); width: 100%;">
-    <div class="stat-row"><span>Net per trip:</span> <span id="bm-net">$0</span></div>
-    <div class="btn-group">
-        <button id="btn-cancel-route">Cancel</button>
-        <button id="btn-build-route" class="primary">Build Route</button>
-    </div>
-</div>
-
-<!-- Route Manager Panel -->
-<div id="route-manager" class="ui-panel">
-    <h2>Manage Route</h2>
-    <div class="stat-row"><span>Active Carts:</span> <span id="rm-carts">1</span></div>
-    <div class="stat-row"><span>Current Profit/Trip:</span> <span id="rm-profit">$0</span></div>
-    <div class="btn-group">
-        <button id="btn-buy-cart" class="primary">Buy Cart ($20)</button>
-        <button id="btn-delete-route" class="danger">Delete Route</button>
-    </div>
-    <button id="btn-close-manager" style="margin-top:10px; width:100%;">Close</button>
-</div>
-
-<!-- Phase 1 Complete Modal -->
-<div id="phase1-modal" class="ui-panel">
-    <h2>A Limit Reached</h2>
-    <p style="text-align:left; font-size: 1rem; line-height: 1.4;">
-        Your transport network is vast, but profits are squeezing. The carts are too slow and hold too little to make the distant northern wool profitable.
-    </p>
-    <p style="text-align:left; font-size: 1rem; line-height: 1.4;">
-        Your drivers report a new invention: <strong>The Canal Barge</strong>. It can carry 10x the wool at a fraction of the cost per mile... but it requires immense capital and flat waterways.
-    </p>
-    <p style="font-style: italic; color: var(--accent); margin-top: 15px;">
-        Phase 1 Complete. You have discovered the bottleneck of the Cart Era.
-    </p>
-    <button id="btn-continue-playing" class="primary" style="margin-top: 10px;">Keep Playing</button>
+<div id="phaseDlg" class="panel modal">
+<h2>The Bottleneck</h2>
+<p style="text-align:left;font-size:.93rem;line-height:1.45;margin-bottom:8px">Your margins are thinning. Nearby farms charge more, distant ones eat profits in transport. The carts are too slow and carry too little.</p>
+<p style="text-align:left;font-size:.93rem;line-height:1.45">Word reaches you of a new invention: <b>the canal barge</b>. Ten times the cargo at a fraction of the cost per mile — but it needs flat waterways and serious capital…</p>
+<p style="font-style:italic;color:#B35B47;margin-top:12px;font-size:.88rem">Phase 1 complete — the cart era has reached its limit.</p>
+<button id="pCont" class="go" style="margin-top:8px">Keep Playing</button>
 </div>
 
 <script>
-// -- Debug error overlay (remove once map renders correctly) --
-window.addEventListener('error', function(e) {
-    var d = document.createElement('div');
-    d.style.cssText = 'position:fixed;top:60px;left:0;right:0;z-index:9999;background:rgba(180,0,0,0.92);color:#fff;padding:10px;font-size:12px;font-family:monospace;word-break:break-all;white-space:pre-wrap;';
-    d.textContent = 'JS ERROR:\n' + e.message + '\n' + (e.filename||'') + ':' + e.lineno + ':' + e.colno;
-    document.body.appendChild(d);
-});
+// ═══════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════
+const HMULT=3, CART_SPD=50, CART_$=20, CPX=0.007;
+const LOAD_TIME=1.4, UNLOAD_TIME=1.8;
+const WAREHOUSE_MAX=20;      // cloth units a factory can store
+const PROC_T=2.5;            // seconds to turn 1 wool → 1 cloth
+const SDECAY=0.12;
+const NFARMS=14, NCITIES=6;
 
-/**
- * YARN MAN - Phase 1 Engine
- */
+const cv=document.getElementById('c');
+const cx=cv.getContext('2d',{alpha:false});
+const world=document.getElementById('world');
+let W,H;
 
-// -- Configuration --
-const WORLD_HEIGHT_MULT = 3; 
-const CART_SPEED = 60; // pixels per second
-const CART_COST = 20;
-const TRANSPORT_COST_PER_PX = 0.006; 
-const FACTORY_PROCESS_TIME = 2.0; // Seconds to process 1 wool
-const FACTORY_QUEUE_MAX = 5;
-const STRESS_DECAY_RATE = 0.2; // Stress reduced per second
-const MAX_FARMS = 14;
+const bg=document.createElement('canvas');
+const bx=bg.getContext('2d');
+let bgOK=false, islandPoly=[];
 
-// -- State --
-let state = {
-    cash: 50,
-    time: 0,
-    day: 1,
-    phase1Complete: false,
-    entities: {
-        farms: [],
-        factories: [],
-        routes: [],
-        floatingTexts: [],
-        particles: []
-    },
-    interaction: {
-        dragging: false,
-        dragStartNode: null,
-        currentMouse: {x: 0, y: 0},
-        selectedRoute: null,
-        pendingRoute: null // stores the farm/factory pair when modal is open
-    }
+const S={
+    cash:50,t:0,day:1,done:false,
+    farms:[],factories:[],cities:[],
+    woolRoutes:[],clothRoutes:[],
+    floats:[],smoke:[],
+    drag:false,dragFrom:null,dragType:null,mouse:{x:0,y:0},
+    selRoute:null,pending:null
 };
 
-// -- DOM Elements --
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d', { alpha: false }); // Optimize
-const container = document.getElementById('world-container');
-
-// UI Elements
-const uiCash = document.getElementById('ui-cash');
-const uiDay = document.getElementById('ui-day');
-const buildModal = document.getElementById('build-modal');
-const routeManager = document.getElementById('route-manager');
-const phase1Modal = document.getElementById('phase1-modal');
-
-// -- Resize & Canvas Setup --
-let width, height;
-function resize() {
-    width = window.innerWidth;
-    // Cap width to 1000px for ultrawides so map doesn't get ridiculously sparse
-    if (width > 1000) width = 1000;
-
-    height = window.innerHeight * WORLD_HEIGHT_MULT;
-    canvas.width = width;
-    canvas.height = height;
-
-    // Center the canvas if window is wider than cap
-    if (window.innerWidth > 1000) {
-        canvas.style.marginLeft = `${(window.innerWidth - 1000)/2}px`;
-    } else {
-        canvas.style.marginLeft = '0px';
-    }
-
-    // Force background redraw at new dimensions
-    if (bgRendered) {
-        bgRendered = false;
-        renderBackground();
-    }
+// ═══════════════════════════════════════
+// MATH
+// ═══════════════════════════════════════
+const dd=(a,b,c,e)=>Math.hypot(c-a,e-b);
+const mix=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+function ptIn(px,py,poly){
+    let ins=false;
+    for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+        let xi=poly[i].x,yi=poly[i].y,xj=poly[j].x,yj=poly[j].y;
+        if((yi>py)!==(yj>py)&&px<(xj-xi)*(py-yi)/(yj-yi)+xi)ins=!ins;
+    }return ins;
 }
-window.addEventListener('resize', resize);
-resize();
-
-// Scroll to bottom (South) at start
-setTimeout(() => {
-    container.scrollTo(0, height);
-}, 100);
-
-// -- Math Helpers --
-const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
-const lerp = (a, b, t) => a + (b - a) * t;
-
-// Distance from point to line segment
-function distToSegmentSquared(p, v, w) {
-    let l2 = dist(v.x, v.y, w.x, w.y);
-    l2 = l2 * l2;
-    if (l2 === 0) return dist(p.x, p.y, v.x, v.y) * dist(p.x, p.y, v.x, v.y);
-    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
-    t = Math.max(0, Math.min(1, t));
-    return dist(p.x, p.y, v.x + t * (w.x - v.x), v.y + t * (w.y - v.y)) ** 2;
+function segD2(p,a,b){
+    let l2=dd(a.x,a.y,b.x,b.y)**2;if(!l2)return dd(p.x,p.y,a.x,a.y)**2;
+    let t=clamp(((p.x-a.x)*(b.x-a.x)+(p.y-a.y)*(b.y-a.y))/l2,0,1);
+    return dd(p.x,p.y,a.x+t*(b.x-a.x),a.y+t*(b.y-a.y))**2;
 }
 
-// -- Island Generation --
-// We pre-render the island background to an offscreen canvas for performance
-const bgCanvas = document.createElement('canvas');
-const bgCtx = bgCanvas.getContext('2d');
-let bgRendered = false;
-
-function renderBackground() {
-    bgCanvas.width = width;
-    bgCanvas.height = height;
-
-    // Fill Water
-    bgCtx.fillStyle = '#A9C2C9';
-    bgCtx.fillRect(0, 0, width, height);
-
-    // Draw Island Landmass
-    bgCtx.fillStyle = '#E3DBc8';
-    bgCtx.beginPath();
-
-    const margin = width * 0.1;
-    const islandWidth = width - margin * 2;
-    const segments = 20;
-
-    bgCtx.moveTo(margin + Math.random()*50, margin);
-
-    // Right side
-    for(let i=1; i<=segments; i++) {
-        let y = margin + (height - 2*margin) * (i/segments);
-        let x = width - margin + (Math.random() * 80 - 40);
-        bgCtx.lineTo(x, y);
+// ═══════════════════════════════════════
+// ISLAND — VERY wide south
+// ═══════════════════════════════════════
+function buildIsland(){
+    let seed=42;
+    function sr(){seed=(seed*16807)%2147483647;return(seed-1)/2147483646;}
+    const segs=44, right=[], left=[];
+    for(let i=0;i<=segs;i++){
+        let t=i/segs, y=H*0.015+H*0.97*t, hw;
+        if(t<0.05)       hw=mix(0.03,0.14,t/0.05);
+        else if(t<0.15)  hw=mix(0.14,0.28,(t-0.05)/0.10);
+        else if(t<0.45)  hw=mix(0.28,0.34,(t-0.15)/0.30);
+        else if(t<0.65)  hw=mix(0.34,0.46,(t-0.45)/0.20);
+        else if(t<0.82)  hw=mix(0.46,0.48,(t-0.65)/0.17); // very wide south plateau
+        else              hw=mix(0.48,0.03,(t-0.82)/0.18);
+        hw*=W;
+        let cx2=W*0.50+Math.sin(t*4.2)*W*0.025;
+        let r=7+hw*0.05;
+        left.push({x:clamp(cx2-hw+(sr()*r-r/2),3,W-3),y});
+        right.push({x:clamp(cx2+hw+(sr()*r-r/2),3,W-3),y});
     }
-    // Bottom
-    bgCtx.lineTo(width/2, height - margin + 40);
-
-    // Left side
-    for(let i=segments-1; i>=0; i--) {
-        let y = margin + (height - 2*margin) * (i/segments);
-        let x = margin + (Math.random() * 80 - 40);
-        bgCtx.lineTo(x, y);
-    }
-
-    bgCtx.closePath();
-    bgCtx.fill();
-    bgCtx.lineWidth = 4;
-    bgCtx.strokeStyle = '#D1C6AC';
-    bgCtx.stroke();
-
-    // Add some soft green terrain patches
-    for(let i=0; i<30; i++) {
-        bgCtx.fillStyle = 'rgba(164, 184, 137, 0.4)';
-        bgCtx.beginPath();
-        let px = margin * 2 + Math.random() * (islandWidth - margin*2);
-        let py = margin * 2 + Math.random() * (height - margin*4);
-        bgCtx.arc(px, py, 30 + Math.random()*80, 0, Math.PI*2);
-        bgCtx.fill();
-    }
-
-    bgRendered = true;
+    islandPoly=[];
+    for(let p of right) islandPoly.push(p);
+    for(let i=left.length-1;i>=0;i--) islandPoly.push(left[i]);
+}
+function tracePoly(c){
+    c.beginPath();c.moveTo(islandPoly[0].x,islandPoly[0].y);
+    for(let i=1;i<islandPoly.length;i++) c.lineTo(islandPoly[i].x,islandPoly[i].y);
+    c.closePath();
 }
 
-// -- Entity Definitions --
-
-class Farm {
-    constructor(x, y, isNorth) {
-        this.type = 'farm';
-        this.x = x;
-        this.y = y;
-        this.radius = 20;
-        this.isNorth = isNorth;
-        // Northern farms are much cheaper
-        this.baseAsk = isNorth ? Math.floor(Math.random()*2) + 1 : Math.floor(Math.random()*2) + 3; // North: $1-2, South: $3-4
-        this.stress = 0; // Volume tracker
+// ═══════════════════════════════════════
+// BACKGROUND
+// ═══════════════════════════════════════
+function renderBG(){
+    bg.width=W;bg.height=H;
+    let wg=bx.createLinearGradient(0,0,0,H);
+    wg.addColorStop(0,'#4A6B85');wg.addColorStop(.5,'#5A7B95');wg.addColorStop(1,'#6A8BA5');
+    bx.fillStyle=wg;bx.fillRect(0,0,W,H);
+    for(let i=0;i<100;i++){
+        bx.strokeStyle='rgba(255,255,255,.05)';bx.lineWidth=.4+Math.random()*.5;
+        bx.beginPath();bx.arc(Math.random()*W,Math.random()*H,5+Math.random()*14,.2,Math.PI*.8);bx.stroke();
     }
+    let lg=bx.createLinearGradient(0,0,0,H);
+    lg.addColorStop(0,'#667A52');lg.addColorStop(.25,'#768A62');lg.addColorStop(.5,'#8EA074');
+    lg.addColorStop(.75,'#A4B882');lg.addColorStop(1,'#B4C48C');
+    tracePoly(bx);bx.fillStyle=lg;bx.fill();
+    tracePoly(bx);bx.lineWidth=5;bx.strokeStyle='rgba(150,140,105,.45)';bx.stroke();
+    tracePoly(bx);bx.lineWidth=1.5;bx.strokeStyle='rgba(70,90,55,.45)';bx.stroke();
+    bx.save();tracePoly(bx);bx.clip();
+    // heather
+    for(let i=0;i<30;i++){let px=W*.1+Math.random()*W*.8,py=H*.01+Math.random()*H*.22;
+        bx.fillStyle=`rgba(${105+~~(Math.random()*35)},${72+~~(Math.random()*22)},${115+~~(Math.random()*35)},.3)`;
+        bx.beginPath();bx.arc(px,py,10+Math.random()*42,0,Math.PI*2);bx.fill();}
+    for(let i=0;i<10;i++){let px=W*.15+Math.random()*W*.7,py=H*.02+Math.random()*H*.2;
+        bx.fillStyle=`rgba(50,42,35,${.12+Math.random()*.16})`;
+        bx.beginPath();bx.arc(px,py,7+Math.random()*25,0,Math.PI*2);bx.fill();}
+    // fields
+    const pal=[[155,185,112],[138,168,98],[172,190,132],[148,176,105],[178,160,106],[126,158,88]];
+    for(let i=0;i<60;i++){let fx=W*.05+Math.random()*W*.9,fy=H*.36+Math.random()*H*.6;
+        let fw=22+Math.random()*68,fh=16+Math.random()*48;
+        let [r,g,b]=pal[~~(Math.random()*pal.length)];
+        bx.save();bx.translate(fx,fy);bx.rotate((Math.random()-.5)*.3);
+        bx.fillStyle=`rgba(${r},${g},${b},${.2+Math.random()*.22})`;bx.fillRect(-fw/2,-fh/2,fw,fh);
+        bx.strokeStyle=`rgba(38,60,22,${.14+Math.random()*.16})`;bx.lineWidth=1;bx.strokeRect(-fw/2,-fh/2,fw,fh);
+        bx.restore();}
+    // woods
+    for(let i=0;i<24;i++){let tx=W*.07+Math.random()*W*.86,ty=H*.16+Math.random()*H*.72;
+        for(let j=0;j<2+~~(Math.random()*5);j++){let x=tx+Math.random()*20-10,y=ty+Math.random()*14-7,r=3+Math.random()*7;
+        let g=62+~~(Math.random()*30);
+        bx.fillStyle=`rgba(${g-20},${g},${g-28},${.42+Math.random()*.28})`;
+        bx.beginPath();bx.arc(x,y,r,0,Math.PI*2);bx.fill();}}
+    // hills
+    for(let i=0;i<16;i++){let hx=W*.08+Math.random()*W*.84,hy=H*.1+Math.random()*H*.8;
+        let rx=40+Math.random()*100,ry=10+Math.random()*30;
+        let hg=bx.createRadialGradient(hx,hy-ry*.3,0,hx,hy,rx*.9);
+        hg.addColorStop(0,'rgba(255,255,255,.07)');hg.addColorStop(.5,'rgba(255,255,255,.02)');hg.addColorStop(1,'rgba(0,0,0,.04)');
+        bx.fillStyle=hg;bx.beginPath();bx.ellipse(hx,hy,rx,ry,0,0,Math.PI*2);bx.fill();}
+    bx.restore();
+    bgOK=true;
+}
 
-    get askPrice() {
-        // Price goes up with stress
-        let price = this.baseAsk + Math.floor(this.stress / 4);
-        return Math.min(price, 10); // Ceiling $10
+// ═══════════════════════════════════════
+// ENTITIES
+// ═══════════════════════════════════════
+class Farm{
+    constructor(x,y,n){
+        this.type='farm';this.x=x;this.y=y;this.r=22;this.n=n;
+        this.bAsk=n?1+~~(Math.random()*2):3+~~(Math.random()*2);
+        this.str=0;this.gate=null;this.gateQ=[];
     }
-
-    update(dt) {
-        if (this.stress > 0) {
-            this.stress -= STRESS_DECAY_RATE * dt;
-            if (this.stress < 0) this.stress = 0;
-        }
+    get ask(){return clamp(this.bAsk+~~(this.str/4),1,10)}
+    update(dt){
+        if(this.str>0){this.str-=SDECAY*dt;if(this.str<0)this.str=0;}
+        if(this.gate){this.gate.tmr-=dt;if(this.gate.tmr<=0){
+            this.str+=1;this.gate.cost=this.ask;this.gate.dir=1;this.gate.st='move';this.gate=null;}}
+        if(!this.gate&&this.gateQ.length>0){let n=this.gateQ.shift();n.tmr=LOAD_TIME;n.st='loading';this.gate=n;}
     }
-
-    draw(ctx) {
+    draw(c){
+        // Sheep pen fence
+        c.strokeStyle='rgba(120,100,70,.5)';c.lineWidth=1.5;
+        c.strokeRect(this.x-18,this.y+7,36,12);
+        // Sheep blobs
+        c.fillStyle='#E8E4DC';
+        c.beginPath();c.arc(this.x-8,this.y+12,4,0,Math.PI*2);c.fill();
+        c.beginPath();c.arc(this.x+2,this.y+14,3.5,0,Math.PI*2);c.fill();
+        c.beginPath();c.arc(this.x+10,this.y+11,4,0,Math.PI*2);c.fill();
         // House
-        ctx.fillStyle = '#f4f4f4';
-        ctx.fillRect(this.x - 12, this.y - 8, 24, 16);
-        // Roof
-        ctx.fillStyle = '#8A6044';
-        ctx.beginPath();
-        ctx.moveTo(this.x - 14, this.y - 8);
-        ctx.lineTo(this.x, this.y - 20);
-        ctx.lineTo(this.x + 14, this.y - 8);
-        ctx.fill();
-
-        // Price Tag
-        ctx.fillStyle = 'white';
-        ctx.beginPath();
-        ctx.roundRect(this.x + 10, this.y - 25, 24, 16, 4);
-        ctx.fill();
-        ctx.strokeStyle = '#8A7B66';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        
-        ctx.fillStyle = '#3e3832';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`$${this.askPrice}`, this.x + 22, this.y - 17);
+        c.fillStyle='#F0EDE6';c.fillRect(this.x-11,this.y-7,22,14);
+        c.fillStyle='#7A5A3A';c.beginPath();
+        c.moveTo(this.x-13,this.y-7);c.lineTo(this.x,this.y-19);c.lineTo(this.x+13,this.y-7);c.fill();
+        c.fillStyle='#5A3A2A';c.fillRect(this.x-3,this.y+1,6,6);
+        // Queue dots
+        if(this.gateQ.length>0){c.fillStyle='#f39c12';
+            for(let i=0;i<Math.min(this.gateQ.length,6);i++){c.beginPath();c.arc(this.x-20-i*7,this.y,3,0,Math.PI*2);c.fill();}}
+        // Price
+        let t='$'+this.ask;c.font='bold 11px sans-serif';let tw=c.measureText(t).width+8;
+        c.fillStyle='rgba(255,255,255,.92)';c.beginPath();c.roundRect(this.x+16,this.y-22,tw,16,3);c.fill();
+        c.strokeStyle='#8A7B66';c.lineWidth=1;c.stroke();
+        c.fillStyle='#3e3832';c.textAlign='center';c.textBaseline='middle';
+        c.fillText(t,this.x+16+tw/2,this.y-14);
     }
 }
 
-class Factory {
-    constructor(x, y) {
-        this.type = 'factory';
-        this.x = x;
-        this.y = y;
-        this.radius = 25;
-        this.baseBid = Math.floor(Math.random()*3) + 12; // $12-$14
-        this.stress = 0;
-        this.queue = 0;
-        this.processTimer = 0;
+class Factory{
+    constructor(x,y){
+        this.type='factory';this.x=x;this.y=y;this.r=30;
+        this.bBid=10+~~(Math.random()*3); // base wool bid
+        this.str=0;
+        this.woolQ=0;       // wool units being processed
+        this.pt=0;
+        this.warehouse=0;   // cloth in warehouse (0..WAREHOUSE_MAX)
+        this.gate=null;this.gateQ=[];         // wool unloading
+        this.clothGate=null;this.clothGateQ=[]; // cloth loading
     }
-
-    get bidPrice() {
-        // Price goes down with stress
-        let price = this.baseBid - Math.floor(this.stress / 4);
-        return Math.max(price, 5); // Floor $5
+    get woolBid(){
+        // Bid drops when warehouse full, rises when empty
+        let fullness=this.warehouse/WAREHOUSE_MAX;
+        let adj=Math.round((0.5-fullness)*6); // +3 when empty, -3 when full
+        return clamp(this.bBid+adj-~~(this.str/5),3,16);
     }
-
-    update(dt) {
-        // Decay stress (oversupply)
-        if (this.stress > 0) {
-            this.stress -= (STRESS_DECAY_RATE * 0.8) * dt; 
-            if (this.stress < 0) this.stress = 0;
-        }
-
-        // Process queue
-        if (this.queue > 0) {
-            this.processTimer += dt;
-            if (this.processTimer >= FACTORY_PROCESS_TIME) {
-                this.queue--;
-                this.processTimer = 0;
-                spawnSmoke(this.x + 10, this.y - 25);
+    get clothAsk(){
+        // What factory charges for cloth — higher when scarce, lower when abundant
+        let fullness=this.warehouse/WAREHOUSE_MAX;
+        return clamp(Math.round(8+fullness*4),6,14);
+    }
+    update(dt){
+        if(this.str>0){this.str-=SDECAY*.7*dt;if(this.str<0)this.str=0;}
+        // Process wool → cloth
+        if(this.woolQ>0){
+            this.pt+=dt;
+            if(this.pt>=PROC_T){
+                this.woolQ--;this.pt=0;
+                if(this.warehouse<WAREHOUSE_MAX){this.warehouse++;smk(this.x+8,this.y-32);}
             }
-        } else {
-            this.processTimer = 0;
+        }else this.pt=0;
+        // Wool unloading gate
+        if(this.gate){this.gate.tmr-=dt;if(this.gate.tmr<=0){
+            if(this.woolQ<8){// max 8 in processing
+                this.woolQ++;this.str+=1;
+                this.gate.dir=-1;this.gate.st='move';
+            }else{this.gate.st='waitQ';this.gateQ.unshift(this.gate);}
+            this.gate=null;
+        }}
+        if(!this.gate&&this.gateQ.length>0&&this.woolQ<8){
+            let n=this.gateQ.shift();n.tmr=UNLOAD_TIME;n.st='unloading';this.gate=n;
+        }
+        // Cloth loading gate
+        if(this.clothGate){this.clothGate.tmr-=dt;if(this.clothGate.tmr<=0){
+            if(this.warehouse>0){
+                this.warehouse--;
+                this.clothGate.cost=this.clothAsk;
+                this.clothGate.dir=1;this.clothGate.st='move';
+            }else{this.clothGate.st='waitCloth';this.clothGateQ.unshift(this.clothGate);}
+            this.clothGate=null;
+        }}
+        if(!this.clothGate&&this.clothGateQ.length>0&&this.warehouse>0){
+            let n=this.clothGateQ.shift();n.tmr=LOAD_TIME;n.st='clothLoading';this.clothGate=n;
         }
     }
-
-    draw(ctx) {
-        // Main Building
-        ctx.fillStyle = '#B35B47'; // Brick red
-        ctx.fillRect(this.x - 20, this.y - 15, 40, 30);
-        // Roof
-        ctx.fillStyle = '#3e3832';
-        ctx.beginPath();
-        ctx.moveTo(this.x - 22, this.y - 15);
-        ctx.lineTo(this.x, this.y - 25);
-        ctx.lineTo(this.x + 22, this.y - 15);
-        ctx.fill();
-        // Smokestack
-        ctx.fillRect(this.x + 5, this.y - 35, 10, 20);
-
-        // Queue Indicator Bar
-        if (this.queue > 0) {
-            let barW = 30;
-            ctx.fillStyle = '#333';
-            ctx.fillRect(this.x - 15, this.y + 18, barW, 4);
-            let fillW = (this.queue / FACTORY_QUEUE_MAX) * barW;
-            ctx.fillStyle = this.queue >= FACTORY_QUEUE_MAX ? '#e74c3c' : '#f39c12';
-            ctx.fillRect(this.x - 15, this.y + 18, fillW, 4);
+    draw(c){
+        // Parking lot (left side)
+        let nWait=this.gateQ.length;
+        if(nWait>0){
+            c.fillStyle='rgba(80,70,55,.15)';c.fillRect(this.x-55,this.y-8,32,Math.min(nWait,6)*10+8);
+            c.fillStyle='#d4874a';
+            for(let i=0;i<Math.min(nWait,6);i++){
+                c.fillRect(this.x-50,this.y-4+i*10,8,6);
+                c.fillStyle='#222';c.fillRect(this.x-51,this.y-5.5+i*10,2,2);
+                c.fillRect(this.x-41,this.y-5.5+i*10,2,2);c.fillStyle='#d4874a';
+            }
         }
-
-        // Price Tag
-        ctx.fillStyle = '#f4f1ea';
-        ctx.beginPath();
-        ctx.roundRect(this.x - 30, this.y - 35, 26, 18, 4);
-        ctx.fill();
-        ctx.strokeStyle = '#B35B47';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        
-        ctx.fillStyle = '#B35B47';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`$${this.bidPrice}`, this.x - 17, this.y - 26);
+        // Main building
+        c.fillStyle='#A84E3A';c.fillRect(this.x-20,this.y-14,40,28);
+        c.fillStyle='#333';c.beginPath();
+        c.moveTo(this.x-22,this.y-14);c.lineTo(this.x,this.y-24);c.lineTo(this.x+22,this.y-14);c.fill();
+        c.fillStyle='#555';c.fillRect(this.x+7,this.y-38,8,20);
+        c.fillStyle='#E8C860';c.fillRect(this.x-14,this.y-8,8,8);c.fillRect(this.x+4,this.y-8,8,8);
+        // Warehouse (right side of factory)
+        c.fillStyle='#8B7355';c.fillRect(this.x+24,this.y-10,28,22);
+        c.fillStyle='#6B5540';c.fillRect(this.x+24,this.y-14,28,4);
+        // Warehouse fill level
+        let fillH=Math.round((this.warehouse/WAREHOUSE_MAX)*18);
+        if(fillH>0){
+            c.fillStyle='#5B6DAF';
+            c.fillRect(this.x+26,this.y+10-fillH,24,fillH);
+        }
+        // Warehouse label
+        c.font='bold 8px sans-serif';c.fillStyle='#fff';c.textAlign='center';c.textBaseline='middle';
+        c.fillText(this.warehouse+'/'+WAREHOUSE_MAX,this.x+38,this.y+1);
+        // Processing indicator
+        if(this.woolQ>0){
+            c.fillStyle='#f39c12';c.font='bold 8px sans-serif';
+            c.fillText('⚙'+this.woolQ,this.x,this.y+18);
+        }
+        // Wool bid price (left)
+        let wb='$'+this.woolBid;c.font='bold 11px sans-serif';let ww=c.measureText(wb).width+8;
+        c.fillStyle='rgba(255,245,235,.92)';c.beginPath();c.roundRect(this.x-22-ww,this.y-36,ww,16,3);c.fill();
+        c.strokeStyle='#B35B47';c.lineWidth=1;c.stroke();
+        c.fillStyle='#B35B47';c.textAlign='center';c.textBaseline='middle';
+        c.fillText(wb,this.x-22-ww/2,this.y-28);
+        // Cloth ask price (right, above warehouse)
+        let ca='$'+this.clothAsk;let cw=c.measureText(ca).width+8;
+        c.fillStyle='rgba(220,225,245,.92)';c.beginPath();c.roundRect(this.x+24,this.y-28,cw,14,3);c.fill();
+        c.strokeStyle='#5B6DAF';c.lineWidth=1;c.stroke();
+        c.fillStyle='#5B6DAF';c.textAlign='center';
+        c.fillText(ca,this.x+24+cw/2,this.y-21);
     }
 }
 
-class Cart {
-    constructor(route) {
-        this.route = route;
-        this.progress = 0;
-        this.dir = 1; // 1 = to factory, -1 = to farm
-        this.state = 'moving'; // moving, waiting_factory, loading_farm
-        this.timer = 0;
-        this.carriedCost = 0; // The price locked in when it left the farm
+class City{
+    constructor(x,y,name,sz){
+        this.type='city';this.x=x;this.y=y;this.name=name;this.sz=sz;
+        this.r=28;
+        this.baseBid=14+~~(Math.random()*4); // cloth demand price
+        this.supply=0; // cloth received recently
+        this.supplyDecay=0;
     }
+    get clothBid(){
+        let adj=Math.max(0,Math.round(this.supply*1.5));
+        return clamp(this.baseBid-adj,6,22);
+    }
+    update(dt){
+        // Supply decays — city always wants more cloth
+        this.supplyDecay+=dt;
+        if(this.supplyDecay>3){this.supplyDecay=0;if(this.supply>0)this.supply--;}
+    }
+    draw(c){
+        let s=this.sz==='large'?1:.75;
+        // Buildings cluster
+        c.fillStyle='#6B6058';
+        c.fillRect(this.x-10*s,this.y-6*s,8*s,12*s);
+        c.fillRect(this.x+0*s,this.y-10*s,9*s,16*s);
+        c.fillRect(this.x+11*s,this.y-5*s,7*s,11*s);
+        // Roofs
+        c.fillStyle='#4A4038';
+        c.fillRect(this.x-11*s,this.y-8*s,10*s,2*s);
+        c.fillRect(this.x-1*s,this.y-12*s,11*s,2*s);
+        c.fillRect(this.x+10*s,this.y-7*s,9*s,2*s);
+        if(this.sz==='large'){
+            c.fillStyle='#555';c.fillRect(this.x+3,this.y-18*s,3,6*s);
+            c.beginPath();c.moveTo(this.x+2,this.y-18*s);
+            c.lineTo(this.x+4.5,this.y-23*s);c.lineTo(this.x+7,this.y-18*s);c.fill();
+        }
+        // Name
+        c.font=`${this.sz==='large'?'bold 10px':'9px'} sans-serif`;
+        c.fillStyle='rgba(50,42,35,.75)';c.textAlign='center';c.textBaseline='top';
+        c.fillText(this.name,this.x+2,this.y+8*s);
+        // Cloth bid price
+        let t='$'+this.clothBid;c.font='bold 11px sans-serif';let tw=c.measureText(t).width+8;
+        c.fillStyle='rgba(220,225,245,.92)';c.beginPath();c.roundRect(this.x-tw/2,this.y-28*s-16,tw,16,3);c.fill();
+        c.strokeStyle='#5B6DAF';c.lineWidth=1;c.stroke();
+        c.fillStyle='#5B6DAF';c.textAlign='center';c.textBaseline='middle';
+        c.fillText(t,this.x,this.y-28*s-8);
+    }
+}
 
-    update(dt) {
-        const distTotal = this.route.distance;
-        const timeToCross = distTotal / CART_SPEED;
-        
-        if (this.state === 'moving') {
-            this.progress += (dt / timeToCross) * this.dir;
-
-            if (this.progress >= 1) {
-                // Reached Factory
-                this.progress = 1;
-                if (this.route.factory.queue < FACTORY_QUEUE_MAX) {
-                    // Deliver!
-                    this.route.factory.queue++;
-                    this.route.factory.stress += 1;
-                    
-                    let payout = this.route.factory.bidPrice;
-                    let transport = Math.round(this.route.distance * TRANSPORT_COST_PER_PX);
-                    let net = payout - this.carriedCost - transport;
-                    
-                    addCash(net);
-                    spawnFloatingText(this.route.factory.x, this.route.factory.y - 40, net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`, net >= 0 ? '#4F7942' : '#B35B47');
-                    
-                    this.dir = -1; // turn around
-                } else {
-                    this.state = 'waiting_factory';
+// ═══════════════════════════════════════
+// CARTS — work for both wool and cloth
+// ═══════════════════════════════════════
+class Cart{
+    constructor(route){
+        this.route=route;this.p=0;this.dir=1;
+        this.st='move';this.tmr=0;this.cost=0;
+    }
+    get from(){return this.route.from}
+    get to(){return this.route.to}
+    update(dt){
+        let ttc=this.route.dist/CART_SPD;
+        if(this.st==='move'){
+            this.p+=dt/ttc*this.dir;
+            if(this.p>=1){
+                this.p=1;
+                // Arrived at destination
+                if(this.route.kind==='wool'){
+                    this.st='waitQ';this.route.to.gateQ.push(this);
+                }else{
+                    // Cloth arriving at city
+                    this.st='waitDeliver';this.deliverTmr=UNLOAD_TIME;
                 }
-            } else if (this.progress <= 0) {
-                // Reached Farm
-                this.progress = 0;
-                this.state = 'loading_farm';
-                this.timer = 1.0; // takes 1 second to load
+            }else if(this.p<=0){
+                this.p=0;
+                if(this.route.kind==='wool'){
+                    this.st='waitLoad';this.route.from.gateQ.push(this);
+                }else{
+                    // Back at factory, need cloth from warehouse
+                    this.st='waitCloth';this.route.from.clothGateQ.push(this);
+                }
             }
-        } else if (this.state === 'waiting_factory') {
-            if (this.route.factory.queue < FACTORY_QUEUE_MAX) {
-                this.state = 'moving';
-            }
-        } else if (this.state === 'loading_farm') {
-            this.timer -= dt;
-            if (this.timer <= 0) {
-                this.route.farm.stress += 1;
-                this.carriedCost = this.route.farm.askPrice; // Lock in buy price
-                this.dir = 1;
-                this.state = 'moving';
-            }
-        }
-    }
-
-    draw(ctx) {
-        let x = lerp(this.route.farm.x, this.route.factory.x, this.progress);
-        let y = lerp(this.route.farm.y, this.route.factory.y, this.progress);
-
-        ctx.save();
-        ctx.translate(x, y);
-        // Simple cart drawing
-        ctx.fillStyle = '#6b543c'; // wood color
-        ctx.fillRect(-6, -4, 12, 8);
-
-        // Wool only when actively moving toward factory (carrying goods)
-        if (this.dir === 1 && this.state === 'moving') {
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(0, -2, 4, 0, Math.PI*2);
-            ctx.fill();
-        }
-
-        // Wheels
-        ctx.fillStyle = '#111';
-        ctx.fillRect(-7, -6, 4, 2);
-        ctx.fillRect(3, -6, 4, 2);
-        ctx.fillRect(-7, 4, 4, 2);
-        ctx.fillRect(3, 4, 4, 2);
-
-        if (this.state === 'waiting_factory') {
-            ctx.fillStyle = '#e74c3c';
-            ctx.font = '10px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('!', 0, -10);
-        }
-
-        ctx.restore();
-    }
-}
-
-class Route {
-    constructor(farm, factory) {
-        this.farm = farm;
-        this.factory = factory;
-        this.distance = dist(farm.x, farm.y, factory.x, factory.y);
-        this.carts = [new Cart(this)];
-    }
-
-    update(dt) {
-        this.carts.forEach(c => c.update(dt));
-    }
-
-    draw(ctx) {
-        // Draw line
-        ctx.beginPath();
-        ctx.moveTo(this.farm.x, this.farm.y);
-        ctx.lineTo(this.factory.x, this.factory.y);
-        ctx.strokeStyle = this === state.interaction.selectedRoute ? '#FFD700' : 'rgba(138, 123, 102, 0.6)';
-        ctx.lineWidth = this === state.interaction.selectedRoute ? 3 : 2;
-        ctx.setLineDash([5, 5]);
-        ctx.stroke();
-        ctx.setLineDash([]); // reset
-
-        // Draw carts
-        this.carts.forEach(c => c.draw(ctx));
-    }
-}
-
-class FloatingText {
-    constructor(x, y, text, color) {
-        this.x = x + (Math.random()*20-10);
-        this.y = y;
-        this.text = text;
-        this.color = color;
-        this.life = 1.5;
-        this.maxLife = 1.5;
-    }
-    update(dt) {
-        this.y -= 20 * dt;
-        this.life -= dt;
-    }
-    draw(ctx) {
-        ctx.globalAlpha = Math.max(0, this.life / this.maxLife);
-        ctx.fillStyle = this.color;
-        ctx.font = 'bold 16px sans-serif';
-        ctx.textAlign = 'center';
-        // Stroke for visibility
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 2;
-        ctx.strokeText(this.text, this.x, this.y);
-        ctx.fillText(this.text, this.x, this.y);
-        ctx.globalAlpha = 1.0;
-    }
-}
-
-class Particle {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.life = 1.0 + Math.random();
-        this.maxLife = this.life;
-        this.vx = (Math.random() - 0.5) * 10;
-        this.vy = -10 - Math.random() * 15;
-        this.size = 3 + Math.random() * 4;
-    }
-    update(dt) {
-        this.x += this.vx * dt;
-        this.y += this.vy * dt;
-        this.life -= dt;
-        this.size += 2 * dt;
-    }
-    draw(ctx) {
-        ctx.globalAlpha = Math.max(0, this.life / this.maxLife) * 0.5;
-        ctx.fillStyle = '#888';
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI*2);
-        ctx.fill();
-        ctx.globalAlpha = 1.0;
-    }
-}
-
-// -- Initialization --
-
-function initWorld() {
-    renderBackground();
-
-    // Track placed positions to prevent overlaps
-    const placed = [];
-    const MIN_ENTITY_DIST = 70; // minimum px between any two entities
-
-    function tryPlace(xMin, xMax, yMin, yMax, maxAttempts = 60) {
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            let x = xMin + Math.random() * (xMax - xMin);
-            let y = yMin + Math.random() * (yMax - yMin);
-            let tooClose = placed.some(p => dist(x, y, p.x, p.y) < MIN_ENTITY_DIST);
-            if (!tooClose) {
-                placed.push({x, y});
-                return {x, y};
+        }else if(this.st==='waitDeliver'){
+            this.deliverTmr-=dt;
+            if(this.deliverTmr<=0){
+                let city=this.route.to;
+                let net=city.clothBid-this.cost-Math.round(this.route.dist*CPX);
+                addCash(net);
+                city.supply++;
+                flt(city.x,city.y-40,net>=0?'+$'+net:'-$'+Math.abs(net),net>=0?'#4F7942':'#B35B47');
+                this.dir=-1;this.st='move';
             }
         }
-        return null; // couldn't place after maxAttempts, skip
+        // Other states (waitLoad, loading, waitQ, unloading, waitCloth, clothLoading)
+        // are handled by Farm.update / Factory.update
     }
-
-    // Spawn 3 Factories in the South (bottom third)
-    for (let i = 0; i < 3; i++) {
-        let pos = tryPlace(width * 0.18, width * 0.82, height * 0.70, height * 0.94);
-        if (pos) state.entities.factories.push(new Factory(pos.x, pos.y));
+    draw(c){
+        let x,y;
+        let isCloth=this.route.kind==='cloth';
+        if(this.st==='waitQ'||this.st==='unloading'){
+            let qi=this.route.to.gateQ.indexOf(this);if(qi<0)qi=-1;
+            x=this.route.to.x-50;y=this.route.to.y-2+(qi+1)*10;
+        }else if(this.st==='waitLoad'||this.st==='loading'){
+            let qi=this.route.from.gateQ.indexOf(this);if(qi<0)qi=-1;
+            x=this.route.from.x-20-(qi+1)*8;y=this.route.from.y+6;
+        }else if(this.st==='waitCloth'||this.st==='clothLoading'){
+            let qi=this.route.from.clothGateQ.indexOf(this);if(qi<0)qi=-1;
+            x=this.route.from.x+56;y=this.route.from.y-2+(qi+1)*10;
+        }else if(this.st==='waitDeliver'){
+            x=this.route.to.x-15;y=this.route.to.y+6;
+        }else{
+            x=mix(this.route.from.x,this.route.to.x,this.p);
+            y=mix(this.route.from.y,this.route.to.y,this.p);
+        }
+        c.save();c.translate(x,y);
+        c.fillStyle=isCloth?'#4A5A8A':'#6b543c';
+        c.fillRect(-6,-4,12,8);
+        // Cargo
+        let carrying=(this.dir===1&&(this.st==='move'||this.st==='waitDeliver'));
+        if(carrying){
+            c.fillStyle=isCloth?'#8090C0':'#EEE';
+            c.beginPath();c.arc(0,-2,3.5,0,Math.PI*2);c.fill();
+        }
+        c.fillStyle='#222';
+        c.fillRect(-7,-5.5,3,2);c.fillRect(4,-5.5,3,2);
+        c.fillRect(-7,3.5,3,2);c.fillRect(4,3.5,3,2);
+        if(this.st==='waitQ'||this.st==='waitCloth'){
+            c.fillStyle='#e74c3c';c.font='bold 9px sans-serif';
+            c.textAlign='center';c.textBaseline='middle';c.fillText('⏳',0,-10);
+        }
+        c.restore();
     }
+}
 
-    // Spawn Farms across the map (kept away from each other AND from factories)
-    for (let i = 0; i < MAX_FARMS; i++) {
-        let pos = tryPlace(width * 0.12, width * 0.88, height * 0.04, height * 0.86);
-        if (pos) {
-            let isNorth = pos.y < height * 0.5;
-            state.entities.farms.push(new Farm(pos.x, pos.y, isNorth));
+class Route{
+    constructor(from,to,kind){
+        this.from=from;this.to=to;this.kind=kind;
+        this.dist=dd(from.x,from.y,to.x,to.y);
+        this.carts=[new Cart(this)];
+    }
+    update(dt){this.carts.forEach(c=>c.update(dt))}
+    draw(c){
+        c.beginPath();c.moveTo(this.from.x,this.from.y);c.lineTo(this.to.x,this.to.y);
+        let sel=this===S.selRoute;
+        if(sel){c.strokeStyle='#FFD700';c.lineWidth=3;}
+        else{c.strokeStyle=this.kind==='cloth'?'rgba(91,109,175,.5)':'rgba(130,118,96,.5)';c.lineWidth=2;}
+        c.setLineDash(this.kind==='cloth'?[8,4]:[5,5]);c.stroke();c.setLineDash([]);
+        this.carts.forEach(ct=>ct.draw(c));
+    }
+}
+
+function flt(x,y,t,col){S.floats.push({x:x+(Math.random()*14-7),y,t,col,life:1.6,max:1.6})}
+function smk(x,y){for(let i=0;i<3;i++)S.smoke.push({x,y,vx:(Math.random()-.5)*8,vy:-8-Math.random()*12,sz:3+Math.random()*4,life:1+Math.random(),max:1+Math.random()})}
+
+// ═══════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════
+function resize(){
+    W=Math.min(window.innerWidth,960);H=window.innerHeight*HMULT;
+    cv.width=W;cv.height=H;
+    cv.style.marginLeft=window.innerWidth>960?(window.innerWidth-960)/2+'px':'0';
+    buildIsland();renderBG();
+}
+
+function initWorld(){
+    resize();
+    const placed=[];const MIN=85;
+    function place(yMin,yMax,pad,minD){
+        minD=minD||MIN;
+        for(let a=0;a<120;a++){
+            let x=W*pad+Math.random()*W*(1-2*pad);
+            let y=yMin+Math.random()*(yMax-yMin);
+            if(!ptIn(x,y,islandPoly))continue;
+            if(placed.some(p=>dd(x,y,p.x,p.y)<minD))continue;
+            placed.push({x,y});return{x,y};
+        }
+        return null;
+    }
+    // Cities across the island (these drive cloth demand)
+    const cityNames=['Ashton','Thornley','Greystone','Beckford','Millhaven','Woolbury'];
+    const cityZones=[
+        {y0:H*.10,y1:H*.28,sz:'small'},
+        {y0:H*.30,y1:H*.48,sz:'small'},
+        {y0:H*.50,y1:H*.62,sz:'large'},
+        {y0:H*.50,y1:H*.62,sz:'large'},
+        {y0:H*.64,y1:H*.76,sz:'large'},
+        {y0:H*.78,y1:H*.88,sz:'large'},
+    ];
+    for(let i=0;i<NCITIES;i++){
+        let z=cityZones[i];
+        let p=place(z.y0,z.y1,.12,100);
+        if(p) S.cities.push(new City(p.x,p.y,cityNames[i],z.sz));
+    }
+    // 3 factories in wide south band
+    for(let i=0;i<3;i++){let p=place(H*.70,H*.88,.10,120);if(p)S.factories.push(new Factory(p.x,p.y));}
+    // 14 farms
+    for(let i=0;i<NFARMS;i++){let p=place(H*.04,H*.78,.08);if(p)S.farms.push(new Farm(p.x,p.y,p.y<H*.5));}
+    setTimeout(()=>world.scrollTo(0,H),120);
+}
+window.addEventListener('resize',()=>resize());
+
+// ═══════════════════════════════════════
+// CASH & UI
+// ═══════════════════════════════════════
+const $c=document.getElementById('cash'),$d=document.getElementById('day');
+function addCash(n){S.cash+=n;$c.textContent=S.cash;}
+
+function cpos(e){let r=cv.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top};}
+
+function hitEntity(p,list){return list.find(e=>dd(p.x,p.y,e.x,e.y)<(e.r||22)*1.6);}
+
+world.addEventListener('pointerdown',e=>{
+    if(e.target.closest('.panel'))return;
+    document.getElementById('hint').style.opacity='0';
+    let p=cpos(e);
+    // Can drag FROM farms (wool) or FROM factories (cloth)
+    let hf=hitEntity(p,S.farms);
+    if(hf){startDrag(e,hf,'wool');return;}
+    let hfac=hitEntity(p,S.factories);
+    if(hfac){startDrag(e,hfac,'cloth');return;}
+    // Click route?
+    let allRoutes=[...S.woolRoutes,...S.clothRoutes];
+    let best=null,bd=18;
+    for(let r of allRoutes){let d2=Math.sqrt(segD2(p,r.from,r.to));if(d2<bd){bd=d2;best=r;}}
+    if(best){S.selRoute=best;openMgr(best);return;}
+    closeAll();S.selRoute=null;
+});
+
+function startDrag(e,entity,type){
+    S.drag=true;S.dragFrom=entity;S.dragType=type;S.mouse=cpos(e);
+    world.style.overflowY='hidden';cv.style.touchAction='none';
+    cv.setPointerCapture(e.pointerId);e.preventDefault();closeAll();
+}
+
+world.addEventListener('pointermove',e=>{if(S.drag){e.preventDefault();S.mouse=cpos(e);}});
+
+window.addEventListener('pointerup',e=>{
+    if(!S.drag)return;
+    S.drag=false;world.style.overflowY='auto';cv.style.touchAction='pan-y';
+    if(cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId);
+    let p=cpos(e);
+    if(S.dragType==='wool'){
+        let tf=hitEntity(p,S.factories);
+        if(tf&&S.dragFrom){
+            let ex=S.woolRoutes.find(r=>r.from===S.dragFrom&&r.to===tf);
+            if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tf,'wool');
+        }
+    }else if(S.dragType==='cloth'){
+        let tc=hitEntity(p,S.cities);
+        if(tc&&S.dragFrom){
+            let ex=S.clothRoutes.find(r=>r.from===S.dragFrom&&r.to===tc);
+            if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tc,'cloth');
         }
     }
+    S.dragFrom=null;S.dragType=null;
+});
+
+// ═══════════════════════════════════════
+// DIALOGS
+// ═══════════════════════════════════════
+const $b=document.getElementById('buildDlg'),$m=document.getElementById('mgr'),$p=document.getElementById('phaseDlg');
+function closeAll(){$b.style.display='none';$m.style.display='none';}
+
+function openBuild(from,to,kind){
+    S.pending={from,to,kind};
+    let tc=Math.round(dd(from.x,from.y,to.x,to.y)*CPX);
+    let askP,bidP;
+    if(kind==='wool'){askP=from.ask;bidP=to.woolBid;}
+    else{askP=from.clothAsk;bidP=to.clothBid;}
+    let net=bidP-askP-tc;
+    document.getElementById('bTitle').textContent=kind==='wool'?'New Wool Route':'New Cloth Route';
+    document.getElementById('bFromLabel').textContent=kind==='wool'?'Farm Ask':'Cloth Cost';
+    document.getElementById('bToLabel').textContent=kind==='wool'?'Factory Bid':'City Bid';
+    document.getElementById('ba').textContent=askP;
+    document.getElementById('bt').textContent=tc;
+    document.getElementById('bb').textContent=bidP;
+    let $n=document.getElementById('bn');
+    $n.textContent=(net>=0?'+$':'\u2212$')+Math.abs(net);$n.className=net>=0?'pos':'neg';
+    let btn=document.getElementById('bBuild');
+    btn.className=kind==='cloth'?'cloth':'go';
+    $b.style.display='flex';
 }
-
-function spawnFloatingText(x, y, text, color) {
-    state.entities.floatingTexts.push(new FloatingText(x, y, text, color));
+function openMgr(r){
+    let tc=Math.round(r.dist*CPX);
+    let askP,bidP;
+    if(r.kind==='wool'){askP=r.from.ask;bidP=r.to.woolBid;}
+    else{askP=r.from.clothAsk;bidP=r.to.clothBid;}
+    let net=bidP-askP-tc;
+    document.getElementById('mType').innerHTML=r.kind==='wool'?'<span class="tag wool">Wool</span>':'<span class="tag cloth">Cloth</span>';
+    document.getElementById('mc').textContent=r.carts.length;
+    let $p2=document.getElementById('mp');
+    $p2.textContent=(net>=0?'+$':'\u2212$')+Math.abs(net);$p2.className=net>=0?'pos':'neg';
+    document.getElementById('mBuy').disabled=S.cash<CART_$;
+    $m.style.display='flex';
 }
-
-function spawnSmoke(x, y) {
-    for(let i=0; i<3; i++) {
-        state.entities.particles.push(new Particle(x, y));
-    }
-}
-
-function addCash(amount) {
-    state.cash += amount;
-    uiCash.innerText = state.cash;
-    uiCash.classList.add('cash-anim');
-    setTimeout(() => uiCash.classList.remove('cash-anim'), 200);
-}
-
-// -- Input Handling --
-
-function getCanvasPos(e) {
-    const rect = canvas.getBoundingClientRect();
-    // Using clientX/Y mapped to canvas size since container scrolls
-    return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-    };
-}
-
-container.addEventListener('pointerdown', (e) => {
-    // Ignore clicks on UI
-    if (e.target.closest('.ui-panel')) return;
-    
-    // Hide hint
-    document.getElementById('hint').style.opacity = '0';
-
-    const pos = getCanvasPos(e);
-    
-    // 1. Check if clicked a Farm to start route
-    let hitFarm = state.entities.farms.find(f => dist(pos.x, pos.y, f.x, f.y) < f.radius * 2);
-    if (hitFarm) {
-        state.interaction.dragging = true;
-        state.interaction.dragStartNode = hitFarm;
-        state.interaction.currentMouse = pos;
-        
-        // Prevent scrolling while drawing route
-        container.style.overflowY = 'hidden'; 
-        closeModals();
-        return;
-    }
-
-    // 2. Check if clicked a Route
-    let hitRoute = null;
-    let minDist = 15; // pixel tolerance
-    for(let r of state.entities.routes) {
-        let d = Math.sqrt(distToSegmentSquared(pos, r.farm, r.factory));
-        if (d < minDist) {
-            minDist = d;
-            hitRoute = r;
+document.getElementById('bCancel').onclick=closeAll;
+document.getElementById('bBuild').onclick=()=>{
+    if(!S.pending)return;
+    let {from,to,kind}=S.pending;
+    let r=new Route(from,to,kind);
+    if(kind==='wool')S.woolRoutes.push(r);else S.clothRoutes.push(r);
+    closeAll();chkPhase();
+};
+document.getElementById('mClose').onclick=()=>{closeAll();S.selRoute=null;};
+document.getElementById('mBuy').onclick=()=>{
+    let r=S.selRoute;if(r&&S.cash>=CART_$){addCash(-CART_$);r.carts.push(new Cart(r));openMgr(r);}
+};
+document.getElementById('mDel').onclick=()=>{
+    if(!S.selRoute)return;
+    let r=S.selRoute;
+    // Clean carts from queues
+    for(let c of r.carts){
+        if(r.kind==='wool'){
+            let fi=r.from.gateQ.indexOf(c);if(fi>=0)r.from.gateQ.splice(fi,1);
+            if(r.from.gate===c)r.from.gate=null;
+            let fai=r.to.gateQ.indexOf(c);if(fai>=0)r.to.gateQ.splice(fai,1);
+            if(r.to.gate===c)r.to.gate=null;
+        }else{
+            let fi=r.from.clothGateQ.indexOf(c);if(fi>=0)r.from.clothGateQ.splice(fi,1);
+            if(r.from.clothGate===c)r.from.clothGate=null;
         }
     }
-
-    if (hitRoute) {
-        state.interaction.selectedRoute = hitRoute;
-        openRouteManager(hitRoute);
-        return;
-    }
-
-    // Clicked empty space
-    closeModals();
-    state.interaction.selectedRoute = null;
-});
-
-container.addEventListener('pointermove', (e) => {
-    if (state.interaction.dragging) {
-        state.interaction.currentMouse = getCanvasPos(e);
-    }
-});
-
-window.addEventListener('pointerup', (e) => {
-    if (state.interaction.dragging) {
-        state.interaction.dragging = false;
-        container.style.overflowY = 'auto'; // Restore scroll
-        
-        const pos = getCanvasPos(e);
-        let startFarm = state.interaction.dragStartNode;
-        let targetFactory = state.entities.factories.find(f => dist(pos.x, pos.y, f.x, f.y) < f.radius * 2);
-
-        if (targetFactory) {
-            // Check if route already exists
-            let exists = state.entities.routes.find(r => r.farm === startFarm && r.factory === targetFactory);
-            if (exists) {
-                state.interaction.selectedRoute = exists;
-                openRouteManager(exists);
-            } else {
-                openBuildModal(startFarm, targetFactory);
-            }
-        }
-        state.interaction.dragStartNode = null;
-    }
-});
-
-// -- UI Interactions --
-
-function closeModals() {
-    buildModal.style.display = 'none';
-    routeManager.style.display = 'none';
+    if(r.kind==='wool')S.woolRoutes=S.woolRoutes.filter(x=>x!==r);
+    else S.clothRoutes=S.clothRoutes.filter(x=>x!==r);
+    S.selRoute=null;closeAll();
+};
+document.getElementById('pCont').onclick=()=>{$p.style.display='none';};
+function chkPhase(){
+    let total=S.woolRoutes.length+S.clothRoutes.length;
+    if(!S.done&&total>=10){S.done=true;setTimeout(()=>{$p.style.display='flex';closeAll();},800);}
 }
 
-function openBuildModal(farm, factory) {
-    state.interaction.pendingRoute = {farm, factory};
-    
-    let distance = dist(farm.x, farm.y, factory.x, factory.y);
-    let transCost = Math.round(distance * TRANSPORT_COST_PER_PX);
-    let net = factory.bidPrice - farm.askPrice - transCost;
+// ═══════════════════════════════════════
+// GAME LOOP
+// ═══════════════════════════════════════
+let last=performance.now(),uiT=0;
+function tick(now){
+    let dt=(now-last)/1000;last=now;if(dt>.1)dt=.1;
+    S.t+=dt;if(S.t>S.day*5){S.day++;$d.textContent=S.day;}
+    S.farms.forEach(f=>f.update(dt));
+    S.factories.forEach(f=>f.update(dt));
+    S.cities.forEach(c=>c.update(dt));
+    S.woolRoutes.forEach(r=>r.update(dt));
+    S.clothRoutes.forEach(r=>r.update(dt));
+    S.floats.forEach(f=>{f.y-=18*dt;f.life-=dt;});S.floats=S.floats.filter(f=>f.life>0);
+    S.smoke.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.sz+=1.5*dt;p.life-=dt;});S.smoke=S.smoke.filter(p=>p.life>0);
+    if(S.selRoute&&$m.style.display==='flex'){uiT+=dt;if(uiT>.6){uiT=0;openMgr(S.selRoute);}}else uiT=0;
 
-    document.getElementById('bm-ask').innerText = farm.askPrice;
-    document.getElementById('bm-trans').innerText = transCost;
-    document.getElementById('bm-bid').innerText = factory.bidPrice;
-    
-    let netEl = document.getElementById('bm-net');
-    netEl.innerText = net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`;
-    netEl.className = net >= 0 ? 'profit-positive' : 'profit-negative';
-
-    buildModal.style.display = 'flex';
+    // DRAW
+    if(bgOK)cx.drawImage(bg,0,0);
+    // Draw cities first (behind routes)
+    S.cities.forEach(c=>c.draw(cx));
+    S.woolRoutes.forEach(r=>r.draw(cx));
+    S.clothRoutes.forEach(r=>r.draw(cx));
+    S.farms.forEach(f=>f.draw(cx));
+    S.factories.forEach(f=>f.draw(cx));
+    for(let p of S.smoke){cx.globalAlpha=Math.max(0,p.life/p.max)*.4;cx.fillStyle='#888';cx.beginPath();cx.arc(p.x,p.y,p.sz,0,Math.PI*2);cx.fill();}
+    cx.globalAlpha=1;
+    for(let f of S.floats){cx.globalAlpha=Math.max(0,f.life/f.max);cx.font='bold 15px sans-serif';cx.textAlign='center';cx.strokeStyle='#fff';cx.lineWidth=2.5;cx.strokeText(f.t,f.x,f.y);cx.fillStyle=f.col;cx.fillText(f.t,f.x,f.y);}
+    cx.globalAlpha=1;
+    // Drag line
+    if(S.drag&&S.dragFrom){
+        let s=S.dragFrom,e=S.mouse;
+        cx.beginPath();cx.moveTo(s.x,s.y);cx.lineTo(e.x,e.y);
+        cx.strokeStyle=S.dragType==='cloth'?'rgba(91,109,175,.7)':'rgba(130,118,96,.7)';
+        cx.lineWidth=2;cx.setLineDash([5,5]);cx.stroke();cx.setLineDash([]);
+        let cost=Math.round(dd(s.x,s.y,e.x,e.y)*CPX);
+        cx.fillStyle='rgba(255,255,255,.85)';cx.beginPath();cx.roundRect(e.x+12,e.y+8,55,18,3);cx.fill();
+        cx.fillStyle='#3e3832';cx.font='11px sans-serif';cx.textAlign='left';cx.textBaseline='middle';
+        cx.fillText('Cost: $'+cost,e.x+16,e.y+17);
+    }
+    requestAnimationFrame(tick);
 }
-
-document.getElementById('btn-cancel-route').addEventListener('click', closeModals);
-
-document.getElementById('btn-build-route').addEventListener('click', () => {
-    let pr = state.interaction.pendingRoute;
-    if (pr) {
-        state.entities.routes.push(new Route(pr.farm, pr.factory));
-    }
-    closeModals();
-    checkPhase1Progression();
-});
-
-function openRouteManager(route) {
-    // Update stats
-    let transCost = Math.round(route.distance * TRANSPORT_COST_PER_PX);
-    let net = route.factory.bidPrice - route.farm.askPrice - transCost;
-    
-    document.getElementById('rm-carts').innerText = route.carts.length;
-    let netEl = document.getElementById('rm-profit');
-    netEl.innerText = net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`;
-    netEl.className = net >= 0 ? 'profit-positive' : 'profit-negative';
-
-    document.getElementById('btn-buy-cart').disabled = state.cash < CART_COST;
-
-    routeManager.style.display = 'flex';
-}
-
-document.getElementById('btn-close-manager').addEventListener('click', () => {
-    closeModals();
-    state.interaction.selectedRoute = null;
-});
-
-document.getElementById('btn-buy-cart').addEventListener('click', () => {
-    let r = state.interaction.selectedRoute;
-    if (r && state.cash >= CART_COST) {
-        addCash(-CART_COST);
-        let newCart = new Cart(r);
-        // Start cart at 0 to space out naturally
-        r.carts.push(newCart); 
-        openRouteManager(r); // Refresh UI
-    }
-});
-
-document.getElementById('btn-delete-route').addEventListener('click', () => {
-    let r = state.interaction.selectedRoute;
-    if (r) {
-        state.entities.routes = state.entities.routes.filter(rt => rt !== r);
-        state.interaction.selectedRoute = null;
-        closeModals();
-    }
-});
-
-document.getElementById('btn-continue-playing').addEventListener('click', () => {
-    phase1Modal.style.display = 'none';
-});
-
-function checkPhase1Progression() {
-    if (!state.phase1Complete && state.entities.routes.length >= 8) {
-        state.phase1Complete = true;
-        // Small delay to let them see the route build before interrupting
-        setTimeout(() => {
-            phase1Modal.style.display = 'flex';
-            closeModals();
-        }, 1000);
-    }
-}
-
-
-// -- Main Loop --
-
-let lastTime = performance.now();
-let uiUpdateTimer = 0;
-
-function update(dt) {
-    state.time += dt;
-    
-    // Day counter (1 day = 5 real seconds)
-    if (state.time > state.day * 5) {
-        state.day++;
-        uiDay.innerText = state.day;
-    }
-
-    state.entities.farms.forEach(f => f.update(dt));
-    state.entities.factories.forEach(f => f.update(dt));
-    state.entities.routes.forEach(r => r.update(dt));
-    
-    state.entities.floatingTexts.forEach(ft => ft.update(dt));
-    state.entities.floatingTexts = state.entities.floatingTexts.filter(ft => ft.life > 0);
-    
-    state.entities.particles.forEach(p => p.update(dt));
-    state.entities.particles = state.entities.particles.filter(p => p.life > 0);
-
-    // Dynamic UI updates if Manager is open – refresh every 0.5s
-    if (state.interaction.selectedRoute && routeManager.style.display === 'flex') {
-        uiUpdateTimer += dt;
-        if (uiUpdateTimer >= 0.5) {
-            uiUpdateTimer = 0;
-            openRouteManager(state.interaction.selectedRoute);
-        }
-    } else {
-        uiUpdateTimer = 0;
-    }
-}
-
-function draw() {
-    // Background
-    if (bgRendered) {
-        ctx.drawImage(bgCanvas, 0, 0);
-    }
-
-    // Entities
-    state.entities.routes.forEach(r => r.draw(ctx));
-    state.entities.farms.forEach(f => f.draw(ctx));
-    state.entities.factories.forEach(f => f.draw(ctx));
-    state.entities.particles.forEach(p => p.draw(ctx));
-    state.entities.floatingTexts.forEach(ft => ft.draw(ctx));
-
-    // Dragging Route Line
-    if (state.interaction.dragging && state.interaction.dragStartNode) {
-        let start = state.interaction.dragStartNode;
-        let end = state.interaction.currentMouse;
-        
-        ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        ctx.strokeStyle = '#8A7B66';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 5]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Show live transport cost near cursor
-        let d = dist(start.x, start.y, end.x, end.y);
-        let cost = Math.round(d * TRANSPORT_COST_PER_PX);
-        ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.fillRect(end.x + 10, end.y + 10, 60, 20);
-        ctx.fillStyle = '#3e3832';
-        ctx.font = '12px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(`Cost: $${cost}`, end.x + 15, end.y + 20);
-    }
-}
-
-function loop(timestamp) {
-    let dt = (timestamp - lastTime) / 1000;
-    lastTime = timestamp;
-    
-    // Cap dt to avoid huge jumps if tab is backgrounded
-    if (dt > 0.1) dt = 0.1;
-
-    update(dt);
-    draw();
-
-    requestAnimationFrame(loop);
-}
-
-// Start
-initWorld();
-requestAnimationFrame(loop);
-
+initWorld();requestAnimationFrame(tick);
 </script>
+
 </body>
 </html>
-
-
