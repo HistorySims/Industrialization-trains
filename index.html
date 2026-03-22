@@ -205,6 +205,14 @@
 </div>
 
 <script>
+// -- Debug error overlay (remove once map renders correctly) --
+window.addEventListener('error', function(e) {
+    var d = document.createElement('div');
+    d.style.cssText = 'position:fixed;top:60px;left:0;right:0;z-index:9999;background:rgba(180,0,0,0.92);color:#fff;padding:10px;font-size:12px;font-family:monospace;word-break:break-all;white-space:pre-wrap;';
+    d.textContent = 'JS ERROR:\n' + e.message + '\n' + (e.filename||'') + ':' + e.lineno + ':' + e.colno;
+    document.body.appendChild(d);
+});
+
 /**
  * YARN MAN - Phase 1 Engine
  */
