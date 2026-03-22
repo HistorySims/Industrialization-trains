@@ -6,8 +6,8 @@
     <title>Yarn Man - Phase 1</title>
     <style>
         :root {
-            --water: #A9C2C9;
-            --land: #E3DBc8;
+            --water: #6B8FA8;
+            --land: #A8BC86;
             --ui-bg: rgba(244, 241, 234, 0.95);
             --ui-border: #8A7B66;
             --text: #3e3832;
@@ -259,16 +259,22 @@ function resize() {
     width = window.innerWidth;
     // Cap width to 1000px for ultrawides so map doesn't get ridiculously sparse
     if (width > 1000) width = 1000;
-    
+
     height = window.innerHeight * WORLD_HEIGHT_MULT;
     canvas.width = width;
     canvas.height = height;
-    
+
     // Center the canvas if window is wider than cap
     if (window.innerWidth > 1000) {
         canvas.style.marginLeft = `${(window.innerWidth - 1000)/2}px`;
     } else {
         canvas.style.marginLeft = '0px';
+    }
+
+    // Force background redraw at new dimensions
+    if (bgRendered) {
+        bgRendered = false;
+        renderBackground();
     }
 }
 window.addEventListener('resize', resize);
@@ -302,54 +308,231 @@ let bgRendered = false;
 function renderBackground() {
     bgCanvas.width = width;
     bgCanvas.height = height;
-    
-    // Fill Water
-    bgCtx.fillStyle = '#A9C2C9';
+
+    // --- Water: North Sea grey-blue (north) to English Channel (south) ---
+    let waterGrad = bgCtx.createLinearGradient(0, 0, 0, height);
+    waterGrad.addColorStop(0,   '#5E7F9C');
+    waterGrad.addColorStop(0.5, '#6B8FA8');
+    waterGrad.addColorStop(1,   '#7DA0B8');
+    bgCtx.fillStyle = waterGrad;
     bgCtx.fillRect(0, 0, width, height);
-    
-    // Draw Island Landmass
-    bgCtx.fillStyle = '#E3DBc8';
-    bgCtx.beginPath();
-    
-    // Create a rugged vertical island shape
-    const margin = width * 0.1;
-    const islandWidth = width - margin * 2;
-    const segments = 20;
-    
-    bgCtx.moveTo(margin + Math.random()*50, margin);
-    
-    // Right side
-    for(let i=1; i<=segments; i++) {
-        let y = margin + (height - 2*margin) * (i/segments);
-        let x = width - margin + (Math.random() * 80 - 40);
-        bgCtx.lineTo(x, y);
-    }
-    // Bottom
-    bgCtx.lineTo(width/2, height - margin + 40);
-    
-    // Left side
-    for(let i=segments-1; i>=0; i--) {
-        let y = margin + (height - 2*margin) * (i/segments);
-        let x = margin + (Math.random() * 80 - 40);
-        bgCtx.lineTo(x, y);
-    }
-    
-    bgCtx.closePath();
-    bgCtx.fill();
-    bgCtx.lineWidth = 4;
-    bgCtx.strokeStyle = '#D1C6AC';
-    bgCtx.stroke();
-    
-    // Add some soft green terrain patches
-    for(let i=0; i<30; i++) {
-        bgCtx.fillStyle = 'rgba(164, 184, 137, 0.4)'; // soft green
+
+    // Subtle wave ripples on water
+    for (let i = 0; i < 55; i++) {
+        let wx = Math.random() * width;
+        let wy = Math.random() * height;
+        bgCtx.strokeStyle = 'rgba(255,255,255,0.07)';
+        bgCtx.lineWidth = 0.5 + Math.random() * 0.8;
         bgCtx.beginPath();
-        let px = margin * 2 + Math.random() * (islandWidth - margin*2);
-        let py = margin * 2 + Math.random() * (height - margin*4);
-        bgCtx.arc(px, py, 30 + Math.random()*80, 0, Math.PI*2);
+        bgCtx.arc(wx, wy, 10 + Math.random() * 22, 0.15, Math.PI * 0.85);
+        bgCtx.stroke();
+    }
+
+    // --- Build island edge points ---
+    // Narrow at top (Scotland), wide through England, tapering at southern tip
+    const segments = 28;
+    const pts = [];
+    for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        const y = height * 0.03 + height * 0.94 * t;
+        let baseLeft, baseRight, rugged;
+        if (t < 0.22) {
+            // Scottish Highlands – narrow and very rugged
+            const nt = t / 0.22;
+            baseLeft  = width * lerp(0.33, 0.10, nt);
+            baseRight = width * lerp(0.67, 0.90, nt);
+            rugged = 55;
+        } else if (t < 0.80) {
+            // England – wide
+            baseLeft  = width * 0.09;
+            baseRight = width * 0.91;
+            rugged = 28;
+        } else {
+            // Southern tip – tapering
+            const nt = (t - 0.80) / 0.20;
+            baseLeft  = width * lerp(0.09, 0.28, nt);
+            baseRight = width * lerp(0.91, 0.72, nt);
+            rugged = 22;
+        }
+        pts.push({
+            lx: Math.max(2, Math.min(width - 2, baseLeft  + (Math.random() * rugged - rugged * 0.5))),
+            rx: Math.max(2, Math.min(width - 2, baseRight + (Math.random() * rugged - rugged * 0.5))),
+            y
+        });
+    }
+
+    // --- Island base gradient (landscape tones north→south) ---
+    let landGrad = bgCtx.createLinearGradient(0, 0, 0, height);
+    landGrad.addColorStop(0,    '#7A8A68');  // Dark muted highland grey-green
+    landGrad.addColorStop(0.22, '#889870');  // Highland
+    landGrad.addColorStop(0.42, '#96AA7A');  // Northern England
+    landGrad.addColorStop(0.62, '#A8BC86');  // Midlands
+    landGrad.addColorStop(0.82, '#B4C88C');  // Southern England
+    landGrad.addColorStop(1.0,  '#BDCE94');  // Deep south
+
+    const islandPath = new Path2D();
+    islandPath.moveTo(pts[0].lx, pts[0].y);
+    for (let p of pts) islandPath.lineTo(p.rx, p.y);
+    islandPath.lineTo(width / 2 + (Math.random() * 30 - 15), height * 0.985);
+    for (let i = pts.length - 1; i >= 0; i--) islandPath.lineTo(pts[i].lx, pts[i].y);
+    islandPath.closePath();
+
+    bgCtx.fillStyle = landGrad;
+    bgCtx.fill(islandPath);
+
+    // Coastal edge – thin sandy/cliff rim
+    bgCtx.lineWidth = 5;
+    bgCtx.strokeStyle = 'rgba(180, 170, 120, 0.55)';
+    bgCtx.stroke(islandPath);
+    bgCtx.lineWidth = 2;
+    bgCtx.strokeStyle = 'rgba(100, 120, 70, 0.6)';
+    bgCtx.stroke(islandPath);
+
+    // --- Clip island for all terrain detail ---
+    bgCtx.save();
+    bgCtx.clip(islandPath);
+
+    // =============================================
+    // ZONE 1 – SCOTTISH HIGHLANDS (top ~28%)
+    // =============================================
+
+    // Cool grey-purple overlay for highland atmosphere
+    let highlandAtmos = bgCtx.createLinearGradient(0, 0, 0, height * 0.32);
+    highlandAtmos.addColorStop(0,   'rgba(90, 80, 75, 0.32)');
+    highlandAtmos.addColorStop(0.7, 'rgba(90, 80, 75, 0.10)');
+    highlandAtmos.addColorStop(1,   'rgba(90, 80, 75, 0.00)');
+    bgCtx.fillStyle = highlandAtmos;
+    bgCtx.fillRect(0, 0, width, height * 0.36);
+
+    // Heather – purple/mauve blobs
+    for (let i = 0; i < 28; i++) {
+        let px = width * 0.10 + Math.random() * (width * 0.80);
+        let py = height * 0.01 + Math.random() * (height * 0.26);
+        let r  = 14 + Math.random() * 58;
+        let ri = 118 + Math.floor(Math.random() * 38);
+        let gi = 80  + Math.floor(Math.random() * 28);
+        let bi = 128 + Math.floor(Math.random() * 38);
+        bgCtx.fillStyle = `rgba(${ri},${gi},${bi},0.42)`;
+        bgCtx.beginPath();
+        bgCtx.arc(px, py, r, 0, Math.PI * 2);
         bgCtx.fill();
     }
-    
+
+    // Dark peat / bog patches
+    for (let i = 0; i < 14; i++) {
+        let px = width * 0.14 + Math.random() * (width * 0.72);
+        let py = height * 0.01 + Math.random() * (height * 0.25);
+        let r  = 10 + Math.random() * 38;
+        bgCtx.fillStyle = `rgba(62, 52, 42, ${0.18 + Math.random() * 0.22})`;
+        bgCtx.beginPath();
+        bgCtx.arc(px, py, r, 0, Math.PI * 2);
+        bgCtx.fill();
+    }
+
+    // Rocky grey outcrops (irregular polygons)
+    for (let i = 0; i < 20; i++) {
+        let px = width * 0.12 + Math.random() * (width * 0.76);
+        let py = height * 0.01 + Math.random() * (height * 0.26);
+        let sides = 5 + Math.floor(Math.random() * 4);
+        let r  = 6 + Math.random() * 24;
+        let gr = 88 + Math.floor(Math.random() * 28);
+        bgCtx.fillStyle = `rgba(${gr}, ${gr - 2}, ${gr - 6}, ${0.38 + Math.random() * 0.28})`;
+        bgCtx.beginPath();
+        for (let j = 0; j < sides; j++) {
+            let angle = (j / sides) * Math.PI * 2 + Math.random() * 0.35;
+            let rr = r * (0.65 + Math.random() * 0.70);
+            let cx2 = px + rr * Math.cos(angle);
+            let cy2 = py + rr * 0.62 * Math.sin(angle);
+            if (j === 0) bgCtx.moveTo(cx2, cy2); else bgCtx.lineTo(cx2, cy2);
+        }
+        bgCtx.closePath();
+        bgCtx.fill();
+    }
+
+    // =============================================
+    // ZONE 2 – NORTHERN ENGLAND / DALES (28–56%)
+    // =============================================
+
+    // Rolling moorland – darker green pasture blobs
+    for (let i = 0; i < 18; i++) {
+        let px = width * 0.08 + Math.random() * (width * 0.84);
+        let py = height * 0.28 + Math.random() * (height * 0.28);
+        let r  = 28 + Math.random() * 75;
+        let g  = 80 + Math.floor(Math.random() * 30);
+        bgCtx.fillStyle = `rgba(${g - 10}, ${110 + Math.floor(Math.random() * 32)}, ${g - 20}, 0.22)`;
+        bgCtx.beginPath();
+        bgCtx.arc(px, py, r, 0, Math.PI * 2);
+        bgCtx.fill();
+    }
+
+    // =============================================
+    // ZONE 3 – MIDLANDS & SOUTHERN ENGLAND (56–100%)
+    // =============================================
+
+    // Patchwork fields with hedgerow borders
+    const fieldPalette = [
+        [155, 185, 112], [138, 168,  98], [172, 190, 132],
+        [148, 176, 105], [178, 160, 106], [126, 158,  88],
+        [192, 186, 138], [160, 185, 118], [145, 172, 100],
+    ];
+    for (let i = 0; i < 60; i++) {
+        let fx = width * 0.07 + Math.random() * (width * 0.86);
+        let fy = height * 0.44 + Math.random() * (height * 0.53);
+        let fw = 36 + Math.random() * 92;
+        let fh = 28 + Math.random() * 68;
+        let angle = (Math.random() - 0.5) * 0.28;
+        let [r, g, b] = fieldPalette[Math.floor(Math.random() * fieldPalette.length)];
+        let a = 0.28 + Math.random() * 0.26;
+        bgCtx.save();
+        bgCtx.translate(fx, fy);
+        bgCtx.rotate(angle);
+        bgCtx.fillStyle   = `rgba(${r},${g},${b},${a})`;
+        bgCtx.fillRect(-fw / 2, -fh / 2, fw, fh);
+        bgCtx.strokeStyle = `rgba(42, 68, 28, ${0.22 + Math.random() * 0.22})`;
+        bgCtx.lineWidth   = 1.5;
+        bgCtx.strokeRect(-fw / 2, -fh / 2, fw, fh);
+        bgCtx.restore();
+    }
+
+    // =============================================
+    // WOODLAND CLUSTERS (scattered throughout England)
+    // =============================================
+    for (let i = 0; i < 20; i++) {
+        let tx = width * 0.08 + Math.random() * (width * 0.84);
+        let ty = height * 0.26 + Math.random() * (height * 0.68);
+        let numTrees = 2 + Math.floor(Math.random() * 7);
+        for (let j = 0; j < numTrees; j++) {
+            let ttx = tx + (Math.random() * 26 - 13);
+            let tty = ty + (Math.random() * 20 - 10);
+            let treeR = 5 + Math.random() * 10;
+            let tg = 78 + Math.floor(Math.random() * 36);
+            bgCtx.fillStyle = `rgba(${tg - 30}, ${tg}, ${tg - 40}, ${0.52 + Math.random() * 0.32})`;
+            bgCtx.beginPath();
+            bgCtx.arc(ttx, tty, treeR, 0, Math.PI * 2);
+            bgCtx.fill();
+        }
+    }
+
+    // =============================================
+    // ROLLING HILL SHADING (subtle light/shadow)
+    // =============================================
+    for (let i = 0; i < 12; i++) {
+        let hx = width  * 0.10 + Math.random() * (width  * 0.80);
+        let hy = height * 0.22 + Math.random() * (height * 0.68);
+        let rx = 58 + Math.random() * 135;
+        let ry = 18 + Math.random() * 45;
+        let hillGrad = bgCtx.createRadialGradient(hx, hy - ry * 0.28, 0, hx, hy, rx * 0.92);
+        hillGrad.addColorStop(0,   'rgba(255,255,255,0.11)');
+        hillGrad.addColorStop(0.5, 'rgba(255,255,255,0.04)');
+        hillGrad.addColorStop(1,   'rgba(0,0,0,0.07)');
+        bgCtx.fillStyle = hillGrad;
+        bgCtx.beginPath();
+        bgCtx.ellipse(hx, hy, rx, ry, 0, 0, Math.PI * 2);
+        bgCtx.fill();
+    }
+
+    bgCtx.restore(); // Remove island clip
+
     bgRendered = true;
 }
 
@@ -363,7 +546,7 @@ class Farm {
         this.radius = 20;
         this.isNorth = isNorth;
         // Northern farms are much cheaper
-        this.baseAsk = isNorth ? Math.floor(Math.random()*2) + 1 : Math.floor(Math.random()*3) + 3; 
+        this.baseAsk = isNorth ? Math.floor(Math.random()*2) + 1 : Math.floor(Math.random()*2) + 3; // North: $1-2, South: $3-4
         this.stress = 0; // Volume tracker
     }
 
@@ -548,14 +731,15 @@ class Cart {
     draw(ctx) {
         let x = lerp(this.route.farm.x, this.route.factory.x, this.progress);
         let y = lerp(this.route.farm.y, this.route.factory.y, this.progress);
-        
+
+        ctx.save();
         ctx.translate(x, y);
         // Simple cart drawing
         ctx.fillStyle = '#6b543c'; // wood color
         ctx.fillRect(-6, -4, 12, 8);
-        
-        // Wool if returning to factory
-        if (this.dir === 1 && this.state !== 'loading_farm') {
+
+        // Wool only when actively moving toward factory (carrying goods)
+        if (this.dir === 1 && this.state === 'moving') {
             ctx.fillStyle = '#fff';
             ctx.beginPath();
             ctx.arc(0, -2, 4, 0, Math.PI*2);
@@ -568,14 +752,16 @@ class Cart {
         ctx.fillRect(3, -6, 4, 2);
         ctx.fillRect(-7, 4, 4, 2);
         ctx.fillRect(3, 4, 4, 2);
-        
+
         if (this.state === 'waiting_factory') {
             ctx.fillStyle = '#e74c3c';
             ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
             ctx.fillText('!', 0, -10);
         }
 
-        ctx.translate(-x, -y);
+        ctx.restore();
     }
 }
 
@@ -665,22 +851,36 @@ class Particle {
 function initWorld() {
     renderBackground();
 
-    // Spawn 2-3 Factories in the South (bottom third)
-    let bottomThirdY = height * 0.7;
-    for(let i=0; i<3; i++) {
-        let x = width * 0.2 + Math.random() * (width * 0.6);
-        let y = bottomThirdY + Math.random() * (height * 0.25);
-        state.entities.factories.push(new Factory(x, y));
+    // Track placed positions to prevent overlaps
+    const placed = [];
+    const MIN_ENTITY_DIST = 70; // minimum px between any two entities
+
+    function tryPlace(xMin, xMax, yMin, yMax, maxAttempts = 60) {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            let x = xMin + Math.random() * (xMax - xMin);
+            let y = yMin + Math.random() * (yMax - yMin);
+            let tooClose = placed.some(p => dist(x, y, p.x, p.y) < MIN_ENTITY_DIST);
+            if (!tooClose) {
+                placed.push({x, y});
+                return {x, y};
+            }
+        }
+        return null; // couldn't place after maxAttempts, skip
     }
 
-    // Spawn Farms across the map
-    for(let i=0; i<MAX_FARMS; i++) {
-        let x = width * 0.15 + Math.random() * (width * 0.7);
-        // Distribute Y mostly north/mid, a few south
-        let y = height * 0.05 + Math.random() * (height * 0.8);
-        
-        let isNorth = y < height * 0.5;
-        state.entities.farms.push(new Farm(x, y, isNorth));
+    // Spawn 3 Factories in the South (bottom third)
+    for (let i = 0; i < 3; i++) {
+        let pos = tryPlace(width * 0.18, width * 0.82, height * 0.70, height * 0.94);
+        if (pos) state.entities.factories.push(new Factory(pos.x, pos.y));
+    }
+
+    // Spawn Farms across the map (kept away from each other AND from factories)
+    for (let i = 0; i < MAX_FARMS; i++) {
+        let pos = tryPlace(width * 0.12, width * 0.88, height * 0.04, height * 0.86);
+        if (pos) {
+            let isNorth = pos.y < height * 0.5;
+            state.entities.farms.push(new Farm(pos.x, pos.y, isNorth));
+        }
     }
 }
 
@@ -880,6 +1080,7 @@ function checkPhase1Progression() {
 // -- Main Loop --
 
 let lastTime = performance.now();
+let uiUpdateTimer = 0;
 
 function update(dt) {
     state.time += dt;
@@ -900,10 +1101,15 @@ function update(dt) {
     state.entities.particles.forEach(p => p.update(dt));
     state.entities.particles = state.entities.particles.filter(p => p.life > 0);
 
-    // Dynamic UI updates if Manager is open
+    // Dynamic UI updates if Manager is open – refresh every 0.5s
     if (state.interaction.selectedRoute && routeManager.style.display === 'flex') {
-        // Debounce UI update to not kill performance, but keep prices live
-        if (Math.random() < 0.1) openRouteManager(state.interaction.selectedRoute);
+        uiUpdateTimer += dt;
+        if (uiUpdateTimer >= 0.5) {
+            uiUpdateTimer = 0;
+            openRouteManager(state.interaction.selectedRoute);
+        }
+    } else {
+        uiUpdateTimer = 0;
     }
 }
 
