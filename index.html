@@ -1,1 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Yarn Man - Phase 1</title>
+    <style>
+        :root {
+            --water: #A9C2C9;
+            --land: #E3DBc8;
+            --ui-bg: rgba(244, 241, 234, 0.95);
+            --ui-border: #8A7B66;
+            --text: #3e3832;
+            --accent: #B35B47;
+            --green: #4F7942;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--water);
+            font-family: 'Georgia', serif;
+            color: var(--text);
+            overflow: hidden; /* We manage scrolling via a wrapper */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* The scrollable world container */
+        #world-container {
+            width: 100vw;
+            height: 100vh;
+            overflow-y: auto;
+            overflow-x: hidden;
+            position: relative;
+            scroll-behavior: smooth;
+        }
+
+        #gameCanvas {
+            display: block;
+            /* Height will be set via JS to 3x viewport */
+        }
+
+        /* UI Overlays */
+        .ui-panel {
+            position: fixed;
+            background: var(--ui-bg);
+            border: 2px solid var(--ui-border);
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            pointer-events: auto;
+            z-index: 10;
+        }
+
+        #top-bar {
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 30px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            padding: 10px 25px;
+        }
+
+        .cash-anim {
+            color: var(--green);
+            transition: color 0.2s;
+        }
+
+        #route-manager, #build-modal, #phase1-modal {
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            width: 300px;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        #route-manager {
+            top: auto;
+            bottom: 20px;
+            transform: translateX(-50%);
+        }
+
+        h2 {
+            margin: 0 0 10px 0;
+            font-size: 1.3rem;
+            color: var(--accent);
+            border-bottom: 1px solid var(--ui-border);
+            padding-bottom: 5px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+            font-size: 1.1rem;
+        }
+
+        .profit-positive { color: var(--green); font-weight: bold; }
+        .profit-negative { color: var(--accent); font-weight: bold; }
+
+        button {
+            background: var(--ui-bg);
+            border: 1px solid var(--ui-border);
+            border-radius: 4px;
+            padding: 8px 15px;
+            font-family: inherit;
+            font-size: 1rem;
+            cursor: pointer;
+            color: var(--text);
+            transition: all 0.1s;
+        }
+
+        button:hover { background: #e8e2d5; }
+        button:active { background: #dcd4c3; transform: scale(0.98); }
+        button.primary { background: var(--green); color: white; border-color: #2e4a25; }
+        button.primary:hover { background: #5c8c4e; }
+        button.danger { background: var(--accent); color: white; border-color: #7a3d2e; }
+        button.danger:hover { background: #c26a58; }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 10px;
+        }
+
+        .hint {
+            position: fixed;
+            top: 70px;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+            color: #555;
+            font-style: italic;
+            font-size: 0.9rem;
+            text-shadow: 1px 1px 0px rgba(255,255,255,0.8);
+            z-index: 5;
+            opacity: 1;
+            transition: opacity 1s;
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="world-container">
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<!-- UI Elements -->
+<div id="top-bar" class="ui-panel">
+    <div>Bank: $<span id="ui-cash">50</span></div>
+    <div>Day: <span id="ui-day">1</span></div>
+</div>
+
+<div id="hint" class="hint">Scroll up to discover more farms. Click and drag from a Farm to a Factory to build a route.</div>
+
+<!-- Build Route Modal -->
+<div id="build-modal" class="ui-panel">
+    <h2>Proposed Route</h2>
+    <div class="stat-row"><span>Farm Ask:</span> $<span id="bm-ask">0</span></div>
+    <div class="stat-row"><span>Transport Cost:</span> $<span id="bm-trans">0</span></div>
+    <div class="stat-row"><span>Factory Bid:</span> $<span id="bm-bid">0</span></div>
+    <hr style="border: 0; border-top: 1px dashed var(--ui-border); width: 100%;">
+    <div class="stat-row"><span>Net per trip:</span> <span id="bm-net">$0</span></div>
+    <div class="btn-group">
+        <button id="btn-cancel-route">Cancel</button>
+        <button id="btn-build-route" class="primary">Build Route</button>
+    </div>
+</div>
+
+<!-- Route Manager Panel -->
+<div id="route-manager" class="ui-panel">
+    <h2>Manage Route</h2>
+    <div class="stat-row"><span>Active Carts:</span> <span id="rm-carts">1</span></div>
+    <div class="stat-row"><span>Current Profit/Trip:</span> <span id="rm-profit">$0</span></div>
+    <div class="btn-group">
+        <button id="btn-buy-cart" class="primary">Buy Cart ($20)</button>
+        <button id="btn-delete-route" class="danger">Delete Route</button>
+    </div>
+    <button id="btn-close-manager" style="margin-top:10px; width:100%;">Close</button>
+</div>
+
+<!-- Phase 1 Complete Modal -->
+<div id="phase1-modal" class="ui-panel">
+    <h2>A Limit Reached</h2>
+    <p style="text-align:left; font-size: 1rem; line-height: 1.4;">
+        Your transport network is vast, but profits are squeezing. The carts are too slow and hold too little to make the distant northern wool profitable.
+    </p>
+    <p style="text-align:left; font-size: 1rem; line-height: 1.4;">
+        Your drivers report a new invention: <strong>The Canal Barge</strong>. It can carry 10x the wool at a fraction of the cost per mile... but it requires immense capital and flat waterways.
+    </p>
+    <p style="font-style: italic; color: var(--accent); margin-top: 15px;">
+        Phase 1 Complete. You have discovered the bottleneck of the Cart Era.
+    </p>
+    <button id="btn-continue-playing" class="primary" style="margin-top: 10px;">Keep Playing</button>
+</div>
+
+<script>
+/**
+ * YARN MAN - Phase 1 Engine
+ */
+
+// -- Configuration --
+const WORLD_HEIGHT_MULT = 3; 
+const CART_SPEED = 60; // pixels per second
+const CART_COST = 20;
+const TRANSPORT_COST_PER_PX = 0.006; 
+const FACTORY_PROCESS_TIME = 2.0; // Seconds to process 1 wool
+const FACTORY_QUEUE_MAX = 5;
+const STRESS_DECAY_RATE = 0.2; // Stress reduced per second
+const MAX_FARMS = 14;
+
+// -- State --
+let state = {
+    cash: 50,
+    time: 0,
+    day: 1,
+    phase1Complete: false,
+    entities: {
+        farms: [],
+        factories: [],
+        routes: [],
+        floatingTexts: [],
+        particles: []
+    },
+    interaction: {
+        dragging: false,
+        dragStartNode: null,
+        currentMouse: {x: 0, y: 0},
+        selectedRoute: null,
+        pendingRoute: null // stores the farm/factory pair when modal is open
+    }
+};
+
+// -- DOM Elements --
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha: false }); // Optimize
+const container = document.getElementById('world-container');
+
+// UI Elements
+const uiCash = document.getElementById('ui-cash');
+const uiDay = document.getElementById('ui-day');
+const buildModal = document.getElementById('build-modal');
+const routeManager = document.getElementById('route-manager');
+const phase1Modal = document.getElementById('phase1-modal');
+
+// -- Resize & Canvas Setup --
+let width, height;
+function resize() {
+    width = window.innerWidth;
+    // Cap width to 1000px for ultrawides so map doesn't get ridiculously sparse
+    if (width > 1000) width = 1000;
+    
+    height = window.innerHeight * WORLD_HEIGHT_MULT;
+    canvas.width = width;
+    canvas.height = height;
+    
+    // Center the canvas if window is wider than cap
+    if (window.innerWidth > 1000) {
+        canvas.style.marginLeft = `${(window.innerWidth - 1000)/2}px`;
+    } else {
+        canvas.style.marginLeft = '0px';
+    }
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Scroll to bottom (South) at start
+setTimeout(() => {
+    container.scrollTo(0, height);
+}, 100);
+
+// -- Math Helpers --
+const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// Distance from point to line segment
+function distToSegmentSquared(p, v, w) {
+    let l2 = dist(v.x, v.y, w.x, w.y);
+    l2 = l2 * l2;
+    if (l2 === 0) return dist(p.x, p.y, v.x, v.y) * dist(p.x, p.y, v.x, v.y);
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return dist(p.x, p.y, v.x + t * (w.x - v.x), v.y + t * (w.y - v.y)) ** 2;
+}
+
+// -- Island Generation --
+// We pre-render the island background to an offscreen canvas for performance
+const bgCanvas = document.createElement('canvas');
+const bgCtx = bgCanvas.getContext('2d');
+let bgRendered = false;
+
+function renderBackground() {
+    bgCanvas.width = width;
+    bgCanvas.height = height;
+    
+    // Fill Water
+    bgCtx.fillStyle = '#A9C2C9';
+    bgCtx.fillRect(0, 0, width, height);
+    
+    // Draw Island Landmass
+    bgCtx.fillStyle = '#E3DBc8';
+    bgCtx.beginPath();
+    
+    // Create a rugged vertical island shape
+    const margin = width * 0.1;
+    const islandWidth = width - margin * 2;
+    const segments = 20;
+    
+    bgCtx.moveTo(margin + Math.random()*50, margin);
+    
+    // Right side
+    for(let i=1; i<=segments; i++) {
+        let y = margin + (height - 2*margin) * (i/segments);
+        let x = width - margin + (Math.random() * 80 - 40);
+        bgCtx.lineTo(x, y);
+    }
+    // Bottom
+    bgCtx.lineTo(width/2, height - margin + 40);
+    
+    // Left side
+    for(let i=segments-1; i>=0; i--) {
+        let y = margin + (height - 2*margin) * (i/segments);
+        let x = margin + (Math.random() * 80 - 40);
+        bgCtx.lineTo(x, y);
+    }
+    
+    bgCtx.closePath();
+    bgCtx.fill();
+    bgCtx.lineWidth = 4;
+    bgCtx.strokeStyle = '#D1C6AC';
+    bgCtx.stroke();
+    
+    // Add some soft green terrain patches
+    for(let i=0; i<30; i++) {
+        bgCtx.fillStyle = 'rgba(164, 184, 137, 0.4)'; // soft green
+        bgCtx.beginPath();
+        let px = margin * 2 + Math.random() * (islandWidth - margin*2);
+        let py = margin * 2 + Math.random() * (height - margin*4);
+        bgCtx.arc(px, py, 30 + Math.random()*80, 0, Math.PI*2);
+        bgCtx.fill();
+    }
+    
+    bgRendered = true;
+}
+
+// -- Entity Definitions --
+
+class Farm {
+    constructor(x, y, isNorth) {
+        this.type = 'farm';
+        this.x = x;
+        this.y = y;
+        this.radius = 20;
+        this.isNorth = isNorth;
+        // Northern farms are much cheaper
+        this.baseAsk = isNorth ? Math.floor(Math.random()*2) + 1 : Math.floor(Math.random()*3) + 3; 
+        this.stress = 0; // Volume tracker
+    }
+
+    get askPrice() {
+        // Price goes up with stress
+        let price = this.baseAsk + Math.floor(this.stress / 4);
+        return Math.min(price, 10); // Ceiling $10
+    }
+
+    update(dt) {
+        if (this.stress > 0) {
+            this.stress -= STRESS_DECAY_RATE * dt;
+            if (this.stress < 0) this.stress = 0;
+        }
+    }
+
+    draw(ctx) {
+        // House
+        ctx.fillStyle = '#f4f4f4';
+        ctx.fillRect(this.x - 12, this.y - 8, 24, 16);
+        // Roof
+        ctx.fillStyle = '#8A6044';
+        ctx.beginPath();
+        ctx.moveTo(this.x - 14, this.y - 8);
+        ctx.lineTo(this.x, this.y - 20);
+        ctx.lineTo(this.x + 14, this.y - 8);
+        ctx.fill();
+
+        // Price Tag
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.roundRect(this.x + 10, this.y - 25, 24, 16, 4);
+        ctx.fill();
+        ctx.strokeStyle = '#8A7B66';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        
+        ctx.fillStyle = '#3e3832';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`$${this.askPrice}`, this.x + 22, this.y - 17);
+    }
+}
+
+class Factory {
+    constructor(x, y) {
+        this.type = 'factory';
+        this.x = x;
+        this.y = y;
+        this.radius = 25;
+        this.baseBid = Math.floor(Math.random()*3) + 12; // $12-$14
+        this.stress = 0;
+        this.queue = 0;
+        this.processTimer = 0;
+    }
+
+    get bidPrice() {
+        // Price goes down with stress
+        let price = this.baseBid - Math.floor(this.stress / 4);
+        return Math.max(price, 5); // Floor $5
+    }
+
+    update(dt) {
+        // Decay stress (oversupply)
+        if (this.stress > 0) {
+            this.stress -= (STRESS_DECAY_RATE * 0.8) * dt; 
+            if (this.stress < 0) this.stress = 0;
+        }
+
+        // Process queue
+        if (this.queue > 0) {
+            this.processTimer += dt;
+            if (this.processTimer >= FACTORY_PROCESS_TIME) {
+                this.queue--;
+                this.processTimer = 0;
+                spawnSmoke(this.x + 10, this.y - 25);
+            }
+        } else {
+            this.processTimer = 0;
+        }
+    }
+
+    draw(ctx) {
+        // Main Building
+        ctx.fillStyle = '#B35B47'; // Brick red
+        ctx.fillRect(this.x - 20, this.y - 15, 40, 30);
+        // Roof
+        ctx.fillStyle = '#3e3832';
+        ctx.beginPath();
+        ctx.moveTo(this.x - 22, this.y - 15);
+        ctx.lineTo(this.x, this.y - 25);
+        ctx.lineTo(this.x + 22, this.y - 15);
+        ctx.fill();
+        // Smokestack
+        ctx.fillRect(this.x + 5, this.y - 35, 10, 20);
+
+        // Queue Indicator Bar
+        if (this.queue > 0) {
+            let barW = 30;
+            ctx.fillStyle = '#333';
+            ctx.fillRect(this.x - 15, this.y + 18, barW, 4);
+            let fillW = (this.queue / FACTORY_QUEUE_MAX) * barW;
+            ctx.fillStyle = this.queue >= FACTORY_QUEUE_MAX ? '#e74c3c' : '#f39c12';
+            ctx.fillRect(this.x - 15, this.y + 18, fillW, 4);
+        }
+
+        // Price Tag
+        ctx.fillStyle = '#f4f1ea';
+        ctx.beginPath();
+        ctx.roundRect(this.x - 30, this.y - 35, 26, 18, 4);
+        ctx.fill();
+        ctx.strokeStyle = '#B35B47';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        
+        ctx.fillStyle = '#B35B47';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`$${this.bidPrice}`, this.x - 17, this.y - 26);
+    }
+}
+
+class Cart {
+    constructor(route) {
+        this.route = route;
+        this.progress = 0;
+        this.dir = 1; // 1 = to factory, -1 = to farm
+        this.state = 'moving'; // moving, waiting_factory, loading_farm
+        this.timer = 0;
+        this.carriedCost = 0; // The price locked in when it left the farm
+    }
+
+    update(dt) {
+        const distTotal = this.route.distance;
+        const timeToCross = distTotal / CART_SPEED;
+        
+        if (this.state === 'moving') {
+            this.progress += (dt / timeToCross) * this.dir;
+
+            if (this.progress >= 1) {
+                // Reached Factory
+                this.progress = 1;
+                if (this.route.factory.queue < FACTORY_QUEUE_MAX) {
+                    // Deliver!
+                    this.route.factory.queue++;
+                    this.route.factory.stress += 1;
+                    
+                    let payout = this.route.factory.bidPrice;
+                    let transport = Math.round(this.route.distance * TRANSPORT_COST_PER_PX);
+                    let net = payout - this.carriedCost - transport;
+                    
+                    addCash(net);
+                    spawnFloatingText(this.route.factory.x, this.route.factory.y - 40, net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`, net >= 0 ? '#4F7942' : '#B35B47');
+                    
+                    this.dir = -1; // turn around
+                } else {
+                    this.state = 'waiting_factory';
+                }
+            } else if (this.progress <= 0) {
+                // Reached Farm
+                this.progress = 0;
+                this.state = 'loading_farm';
+                this.timer = 1.0; // takes 1 second to load
+            }
+        } else if (this.state === 'waiting_factory') {
+            if (this.route.factory.queue < FACTORY_QUEUE_MAX) {
+                this.state = 'moving';
+            }
+        } else if (this.state === 'loading_farm') {
+            this.timer -= dt;
+            if (this.timer <= 0) {
+                this.route.farm.stress += 1;
+                this.carriedCost = this.route.farm.askPrice; // Lock in buy price
+                this.dir = 1;
+                this.state = 'moving';
+            }
+        }
+    }
+
+    draw(ctx) {
+        let x = lerp(this.route.farm.x, this.route.factory.x, this.progress);
+        let y = lerp(this.route.farm.y, this.route.factory.y, this.progress);
+        
+        ctx.translate(x, y);
+        // Simple cart drawing
+        ctx.fillStyle = '#6b543c'; // wood color
+        ctx.fillRect(-6, -4, 12, 8);
+        
+        // Wool if returning to factory
+        if (this.dir === 1 && this.state !== 'loading_farm') {
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(0, -2, 4, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        // Wheels
+        ctx.fillStyle = '#111';
+        ctx.fillRect(-7, -6, 4, 2);
+        ctx.fillRect(3, -6, 4, 2);
+        ctx.fillRect(-7, 4, 4, 2);
+        ctx.fillRect(3, 4, 4, 2);
+        
+        if (this.state === 'waiting_factory') {
+            ctx.fillStyle = '#e74c3c';
+            ctx.font = '10px sans-serif';
+            ctx.fillText('!', 0, -10);
+        }
+
+        ctx.translate(-x, -y);
+    }
+}
+
+class Route {
+    constructor(farm, factory) {
+        this.farm = farm;
+        this.factory = factory;
+        this.distance = dist(farm.x, farm.y, factory.x, factory.y);
+        this.carts = [new Cart(this)];
+    }
+
+    update(dt) {
+        this.carts.forEach(c => c.update(dt));
+    }
+
+    draw(ctx) {
+        // Draw line
+        ctx.beginPath();
+        ctx.moveTo(this.farm.x, this.farm.y);
+        ctx.lineTo(this.factory.x, this.factory.y);
+        ctx.strokeStyle = this === state.interaction.selectedRoute ? '#FFD700' : 'rgba(138, 123, 102, 0.6)';
+        ctx.lineWidth = this === state.interaction.selectedRoute ? 3 : 2;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]); // reset
+
+        // Draw carts
+        this.carts.forEach(c => c.draw(ctx));
+    }
+}
+
+class FloatingText {
+    constructor(x, y, text, color) {
+        this.x = x + (Math.random()*20-10);
+        this.y = y;
+        this.text = text;
+        this.color = color;
+        this.life = 1.5;
+        this.maxLife = 1.5;
+    }
+    update(dt) {
+        this.y -= 20 * dt;
+        this.life -= dt;
+    }
+    draw(ctx) {
+        ctx.globalAlpha = Math.max(0, this.life / this.maxLife);
+        ctx.fillStyle = this.color;
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'center';
+        // Stroke for visibility
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.strokeText(this.text, this.x, this.y);
+        ctx.fillText(this.text, this.x, this.y);
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+class Particle {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.life = 1.0 + Math.random();
+        this.maxLife = this.life;
+        this.vx = (Math.random() - 0.5) * 10;
+        this.vy = -10 - Math.random() * 15;
+        this.size = 3 + Math.random() * 4;
+    }
+    update(dt) {
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+        this.life -= dt;
+        this.size += 2 * dt;
+    }
+    draw(ctx) {
+        ctx.globalAlpha = Math.max(0, this.life / this.maxLife) * 0.5;
+        ctx.fillStyle = '#888';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI*2);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+// -- Initialization --
+
+function initWorld() {
+    renderBackground();
+
+    // Spawn 2-3 Factories in the South (bottom third)
+    let bottomThirdY = height * 0.7;
+    for(let i=0; i<3; i++) {
+        let x = width * 0.2 + Math.random() * (width * 0.6);
+        let y = bottomThirdY + Math.random() * (height * 0.25);
+        state.entities.factories.push(new Factory(x, y));
+    }
+
+    // Spawn Farms across the map
+    for(let i=0; i<MAX_FARMS; i++) {
+        let x = width * 0.15 + Math.random() * (width * 0.7);
+        // Distribute Y mostly north/mid, a few south
+        let y = height * 0.05 + Math.random() * (height * 0.8);
+        
+        let isNorth = y < height * 0.5;
+        state.entities.farms.push(new Farm(x, y, isNorth));
+    }
+}
+
+function spawnFloatingText(x, y, text, color) {
+    state.entities.floatingTexts.push(new FloatingText(x, y, text, color));
+}
+
+function spawnSmoke(x, y) {
+    for(let i=0; i<3; i++) {
+        state.entities.particles.push(new Particle(x, y));
+    }
+}
+
+function addCash(amount) {
+    state.cash += amount;
+    uiCash.innerText = state.cash;
+    uiCash.classList.add('cash-anim');
+    setTimeout(() => uiCash.classList.remove('cash-anim'), 200);
+}
+
+// -- Input Handling --
+
+function getCanvasPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    // Using clientX/Y mapped to canvas size since container scrolls
+    return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+    };
+}
+
+container.addEventListener('pointerdown', (e) => {
+    // Ignore clicks on UI
+    if (e.target.closest('.ui-panel')) return;
+    
+    // Hide hint
+    document.getElementById('hint').style.opacity = '0';
+
+    const pos = getCanvasPos(e);
+    
+    // 1. Check if clicked a Farm to start route
+    let hitFarm = state.entities.farms.find(f => dist(pos.x, pos.y, f.x, f.y) < f.radius * 2);
+    if (hitFarm) {
+        state.interaction.dragging = true;
+        state.interaction.dragStartNode = hitFarm;
+        state.interaction.currentMouse = pos;
+        
+        // Prevent scrolling while drawing route
+        container.style.overflowY = 'hidden'; 
+        closeModals();
+        return;
+    }
+
+    // 2. Check if clicked a Route
+    let hitRoute = null;
+    let minDist = 15; // pixel tolerance
+    for(let r of state.entities.routes) {
+        let d = Math.sqrt(distToSegmentSquared(pos, r.farm, r.factory));
+        if (d < minDist) {
+            minDist = d;
+            hitRoute = r;
+        }
+    }
+
+    if (hitRoute) {
+        state.interaction.selectedRoute = hitRoute;
+        openRouteManager(hitRoute);
+        return;
+    }
+
+    // Clicked empty space
+    closeModals();
+    state.interaction.selectedRoute = null;
+});
+
+container.addEventListener('pointermove', (e) => {
+    if (state.interaction.dragging) {
+        state.interaction.currentMouse = getCanvasPos(e);
+    }
+});
+
+window.addEventListener('pointerup', (e) => {
+    if (state.interaction.dragging) {
+        state.interaction.dragging = false;
+        container.style.overflowY = 'auto'; // Restore scroll
+        
+        const pos = getCanvasPos(e);
+        let startFarm = state.interaction.dragStartNode;
+        let targetFactory = state.entities.factories.find(f => dist(pos.x, pos.y, f.x, f.y) < f.radius * 2);
+
+        if (targetFactory) {
+            // Check if route already exists
+            let exists = state.entities.routes.find(r => r.farm === startFarm && r.factory === targetFactory);
+            if (exists) {
+                state.interaction.selectedRoute = exists;
+                openRouteManager(exists);
+            } else {
+                openBuildModal(startFarm, targetFactory);
+            }
+        }
+        state.interaction.dragStartNode = null;
+    }
+});
+
+// -- UI Interactions --
+
+function closeModals() {
+    buildModal.style.display = 'none';
+    routeManager.style.display = 'none';
+}
+
+function openBuildModal(farm, factory) {
+    state.interaction.pendingRoute = {farm, factory};
+    
+    let distance = dist(farm.x, farm.y, factory.x, factory.y);
+    let transCost = Math.round(distance * TRANSPORT_COST_PER_PX);
+    let net = factory.bidPrice - farm.askPrice - transCost;
+
+    document.getElementById('bm-ask').innerText = farm.askPrice;
+    document.getElementById('bm-trans').innerText = transCost;
+    document.getElementById('bm-bid').innerText = factory.bidPrice;
+    
+    let netEl = document.getElementById('bm-net');
+    netEl.innerText = net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`;
+    netEl.className = net >= 0 ? 'profit-positive' : 'profit-negative';
+
+    buildModal.style.display = 'flex';
+}
+
+document.getElementById('btn-cancel-route').addEventListener('click', closeModals);
+
+document.getElementById('btn-build-route').addEventListener('click', () => {
+    let pr = state.interaction.pendingRoute;
+    if (pr) {
+        state.entities.routes.push(new Route(pr.farm, pr.factory));
+    }
+    closeModals();
+    checkPhase1Progression();
+});
+
+function openRouteManager(route) {
+    // Update stats
+    let transCost = Math.round(route.distance * TRANSPORT_COST_PER_PX);
+    let net = route.factory.bidPrice - route.farm.askPrice - transCost;
+    
+    document.getElementById('rm-carts').innerText = route.carts.length;
+    let netEl = document.getElementById('rm-profit');
+    netEl.innerText = net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`;
+    netEl.className = net >= 0 ? 'profit-positive' : 'profit-negative';
+
+    document.getElementById('btn-buy-cart').disabled = state.cash < CART_COST;
+
+    routeManager.style.display = 'flex';
+}
+
+document.getElementById('btn-close-manager').addEventListener('click', () => {
+    closeModals();
+    state.interaction.selectedRoute = null;
+});
+
+document.getElementById('btn-buy-cart').addEventListener('click', () => {
+    let r = state.interaction.selectedRoute;
+    if (r && state.cash >= CART_COST) {
+        addCash(-CART_COST);
+        let newCart = new Cart(r);
+        // Start cart at 0 to space out naturally
+        r.carts.push(newCart); 
+        openRouteManager(r); // Refresh UI
+    }
+});
+
+document.getElementById('btn-delete-route').addEventListener('click', () => {
+    let r = state.interaction.selectedRoute;
+    if (r) {
+        state.entities.routes = state.entities.routes.filter(rt => rt !== r);
+        state.interaction.selectedRoute = null;
+        closeModals();
+    }
+});
+
+document.getElementById('btn-continue-playing').addEventListener('click', () => {
+    phase1Modal.style.display = 'none';
+});
+
+function checkPhase1Progression() {
+    if (!state.phase1Complete && state.entities.routes.length >= 8) {
+        state.phase1Complete = true;
+        // Small delay to let them see the route build before interrupting
+        setTimeout(() => {
+            phase1Modal.style.display = 'flex';
+            closeModals();
+        }, 1000);
+    }
+}
+
+
+// -- Main Loop --
+
+let lastTime = performance.now();
+
+function update(dt) {
+    state.time += dt;
+    
+    // Day counter (1 day = 5 real seconds)
+    if (state.time > state.day * 5) {
+        state.day++;
+        uiDay.innerText = state.day;
+    }
+
+    state.entities.farms.forEach(f => f.update(dt));
+    state.entities.factories.forEach(f => f.update(dt));
+    state.entities.routes.forEach(r => r.update(dt));
+    
+    state.entities.floatingTexts.forEach(ft => ft.update(dt));
+    state.entities.floatingTexts = state.entities.floatingTexts.filter(ft => ft.life > 0);
+    
+    state.entities.particles.forEach(p => p.update(dt));
+    state.entities.particles = state.entities.particles.filter(p => p.life > 0);
+
+    // Dynamic UI updates if Manager is open
+    if (state.interaction.selectedRoute && routeManager.style.display === 'flex') {
+        // Debounce UI update to not kill performance, but keep prices live
+        if (Math.random() < 0.1) openRouteManager(state.interaction.selectedRoute);
+    }
+}
+
+function draw() {
+    // Background
+    if (bgRendered) {
+        ctx.drawImage(bgCanvas, 0, 0);
+    }
+
+    // Entities
+    state.entities.routes.forEach(r => r.draw(ctx));
+    state.entities.farms.forEach(f => f.draw(ctx));
+    state.entities.factories.forEach(f => f.draw(ctx));
+    state.entities.particles.forEach(p => p.draw(ctx));
+    state.entities.floatingTexts.forEach(ft => ft.draw(ctx));
+
+    // Dragging Route Line
+    if (state.interaction.dragging && state.interaction.dragStartNode) {
+        let start = state.interaction.dragStartNode;
+        let end = state.interaction.currentMouse;
+        
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.strokeStyle = '#8A7B66';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Show live transport cost near cursor
+        let d = dist(start.x, start.y, end.x, end.y);
+        let cost = Math.round(d * TRANSPORT_COST_PER_PX);
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.fillRect(end.x + 10, end.y + 10, 60, 20);
+        ctx.fillStyle = '#3e3832';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Cost: $${cost}`, end.x + 15, end.y + 20);
+    }
+}
+
+function loop(timestamp) {
+    let dt = (timestamp - lastTime) / 1000;
+    lastTime = timestamp;
+    
+    // Cap dt to avoid huge jumps if tab is backgrounded
+    if (dt > 0.1) dt = 0.1;
+
+    update(dt);
+    draw();
+
+    requestAnimationFrame(loop);
+}
+
+// Start
+initWorld();
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>
+
 
