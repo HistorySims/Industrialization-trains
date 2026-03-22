@@ -337,18 +337,15 @@ function renderBackground() {
         const y = height * 0.03 + height * 0.94 * t;
         let baseLeft, baseRight, rugged;
         if (t < 0.22) {
-            // Scottish Highlands – narrow and very rugged
             const nt = t / 0.22;
             baseLeft  = width * lerp(0.33, 0.10, nt);
             baseRight = width * lerp(0.67, 0.90, nt);
             rugged = 55;
         } else if (t < 0.80) {
-            // England – wide
             baseLeft  = width * 0.09;
             baseRight = width * 0.91;
             rugged = 28;
         } else {
-            // Southern tip – tapering
             const nt = (t - 0.80) / 0.20;
             baseLeft  = width * lerp(0.09, 0.28, nt);
             baseRight = width * lerp(0.91, 0.72, nt);
@@ -360,37 +357,45 @@ function renderBackground() {
             y
         });
     }
+    // Store bottom tip so it stays consistent between fill and clip passes
+    const bottomTipX = width / 2 + (Math.random() * 30 - 15);
+
+    // Helper: trace the island outline onto bgCtx (traditional, no Path2D args)
+    function traceIsland() {
+        bgCtx.beginPath();
+        bgCtx.moveTo(pts[0].lx, pts[0].y);
+        for (let p of pts) bgCtx.lineTo(p.rx, p.y);
+        bgCtx.lineTo(bottomTipX, height * 0.985);
+        for (let i = pts.length - 1; i >= 0; i--) bgCtx.lineTo(pts[i].lx, pts[i].y);
+        bgCtx.closePath();
+    }
 
     // --- Island base gradient (landscape tones north→south) ---
     let landGrad = bgCtx.createLinearGradient(0, 0, 0, height);
-    landGrad.addColorStop(0,    '#7A8A68');  // Dark muted highland grey-green
-    landGrad.addColorStop(0.22, '#889870');  // Highland
-    landGrad.addColorStop(0.42, '#96AA7A');  // Northern England
-    landGrad.addColorStop(0.62, '#A8BC86');  // Midlands
-    landGrad.addColorStop(0.82, '#B4C88C');  // Southern England
-    landGrad.addColorStop(1.0,  '#BDCE94');  // Deep south
+    landGrad.addColorStop(0,    '#7A8A68');
+    landGrad.addColorStop(0.22, '#889870');
+    landGrad.addColorStop(0.42, '#96AA7A');
+    landGrad.addColorStop(0.62, '#A8BC86');
+    landGrad.addColorStop(0.82, '#B4C88C');
+    landGrad.addColorStop(1.0,  '#BDCE94');
 
-    const islandPath = new Path2D();
-    islandPath.moveTo(pts[0].lx, pts[0].y);
-    for (let p of pts) islandPath.lineTo(p.rx, p.y);
-    islandPath.lineTo(width / 2 + (Math.random() * 30 - 15), height * 0.985);
-    for (let i = pts.length - 1; i >= 0; i--) islandPath.lineTo(pts[i].lx, pts[i].y);
-    islandPath.closePath();
-
+    // Fill island
+    traceIsland();
     bgCtx.fillStyle = landGrad;
-    bgCtx.fill(islandPath);
+    bgCtx.fill();
 
-    // Coastal edge – thin sandy/cliff rim
+    // Coastal edge strokes (path still active after fill)
     bgCtx.lineWidth = 5;
     bgCtx.strokeStyle = 'rgba(180, 170, 120, 0.55)';
-    bgCtx.stroke(islandPath);
+    bgCtx.stroke();
     bgCtx.lineWidth = 2;
     bgCtx.strokeStyle = 'rgba(100, 120, 70, 0.6)';
-    bgCtx.stroke(islandPath);
+    bgCtx.stroke();
 
-    // --- Clip island for all terrain detail ---
+    // --- Clip to island for all terrain detail ---
     bgCtx.save();
-    bgCtx.clip(islandPath);
+    traceIsland(); // rebuild path for clip
+    bgCtx.clip();
 
     // =============================================
     // ZONE 1 – SCOTTISH HIGHLANDS (top ~28%)
@@ -453,7 +458,6 @@ function renderBackground() {
     // ZONE 2 – NORTHERN ENGLAND / DALES (28–56%)
     // =============================================
 
-    // Rolling moorland – darker green pasture blobs
     for (let i = 0; i < 18; i++) {
         let px = width * 0.08 + Math.random() * (width * 0.84);
         let py = height * 0.28 + Math.random() * (height * 0.28);
@@ -469,7 +473,6 @@ function renderBackground() {
     // ZONE 3 – MIDLANDS & SOUTHERN ENGLAND (56–100%)
     // =============================================
 
-    // Patchwork fields with hedgerow borders
     const fieldPalette = [
         [155, 185, 112], [138, 168,  98], [172, 190, 132],
         [148, 176, 105], [178, 160, 106], [126, 158,  88],
@@ -495,7 +498,7 @@ function renderBackground() {
     }
 
     // =============================================
-    // WOODLAND CLUSTERS (scattered throughout England)
+    // WOODLAND CLUSTERS
     // =============================================
     for (let i = 0; i < 20; i++) {
         let tx = width * 0.08 + Math.random() * (width * 0.84);
@@ -514,7 +517,7 @@ function renderBackground() {
     }
 
     // =============================================
-    // ROLLING HILL SHADING (subtle light/shadow)
+    // ROLLING HILL SHADING
     // =============================================
     for (let i = 0; i < 12; i++) {
         let hx = width  * 0.10 + Math.random() * (width  * 0.80);
