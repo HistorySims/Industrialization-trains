@@ -489,8 +489,12 @@ function renderBackground() {
         hg.addColorStop(0.5, 'rgba(255,255,255,0.03)');
         hg.addColorStop(1,   'rgba(0,0,0,0.06)');
         bgCtx.fillStyle = hg;
+        bgCtx.save();
+        bgCtx.translate(hx, hy);
+        bgCtx.scale(rx, ry);
         bgCtx.beginPath();
-        bgCtx.ellipse(hx, hy, rx, ry, 0, 0, Math.PI * 2);
+        bgCtx.arc(0, 0, 1, 0, Math.PI * 2);
+        bgCtx.restore();
         bgCtx.fill();
     }
 
