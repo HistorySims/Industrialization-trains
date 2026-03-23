@@ -136,25 +136,43 @@ function pathLens(path){let l=[0];for(let i=1;i<path.length;i++)l.push(l[i-1]+dd
 function pathPos(path,t){let l=pathLens(path),tot=l[l.length-1],tgt=clamp(t,0,1)*tot;for(let i=1;i<path.length;i++){if(l[i]>=tgt||i===path.length-1){let s=l[i]-l[i-1],st=s>0?(tgt-l[i-1])/s:0;return{x:mix(path[i-1].x,path[i].x,st),y:mix(path[i-1].y,path[i].y,st)};}}return{...path[path.length-1]};}
 
 // ═══════════════════════════════════════
-// ISLAND — VERY wide south
+// ISLAND — jagged east coast, smooth west with bays
 // ═══════════════════════════════════════
+// Bay positions on the west coast (t along island 0→1)
+const BAY_T=[0.33, 0.63];
+function islandHW(t){
+    // half-width profile (fraction of W)
+    if(t<0.06)       return mix(0.03,0.15,t/0.06);
+    if(t<0.22)       return mix(0.15,0.28,(t-0.06)/0.16);
+    if(t<0.48)       return mix(0.28,0.36,(t-0.22)/0.26);
+    if(t<0.68)       return mix(0.36,0.40,(t-0.48)/0.20);
+    if(t<0.80)       return mix(0.40,0.32,(t-0.68)/0.12); // waist before cape
+    if(t<0.88)       return mix(0.32,0.38,(t-0.80)/0.08); // south cape bulge
+    return mix(0.38,0.03,(t-0.88)/0.12);
+}
+function islandCX(t){return W*0.48+Math.sin(t*3.8+0.3)*W*0.04;}
 function buildIsland(){
-    let seed=42;
-    function sr(){seed=(seed*16807)%2147483647;return(seed-1)/2147483646;}
-    const segs=44, right=[], left=[];
-    for(let i=0;i<=segs;i++){
-        let t=i/segs, y=H*0.015+H*0.97*t, hw;
-        if(t<0.05)       hw=mix(0.03,0.14,t/0.05);
-        else if(t<0.15)  hw=mix(0.14,0.28,(t-0.05)/0.10);
-        else if(t<0.45)  hw=mix(0.28,0.34,(t-0.15)/0.30);
-        else if(t<0.65)  hw=mix(0.34,0.46,(t-0.45)/0.20);
-        else if(t<0.82)  hw=mix(0.46,0.48,(t-0.65)/0.17); // very wide south plateau
-        else              hw=mix(0.48,0.03,(t-0.82)/0.18);
-        hw*=W;
-        let cx2=W*0.50+Math.sin(t*4.2)*W*0.025;
-        let r=7+hw*0.05;
-        left.push({x:clamp(cx2-hw+(sr()*r-r/2),3,W-3),y});
-        right.push({x:clamp(cx2+hw+(sr()*r-r/2),3,W-3),y});
+    // East coast: jagged/rocky (larger noise, spiky)
+    let seedE=42;
+    function sre(){seedE=(seedE*16807)%2147483647;return(seedE-1)/2147483646;}
+    const segsE=64, right=[];
+    for(let i=0;i<=segsE;i++){
+        let t=i/segsE, y=H*0.015+H*0.968*t;
+        let hw=islandHW(t)*W, cx2=islandCX(t);
+        let jagAmp=W*(0.035+0.04*Math.abs(Math.sin(t*7.1)));
+        right.push({x:clamp(cx2+hw+(sre()*jagAmp*2-jagAmp),3,W-3),y});
+    }
+    // West coast: smooth with 2 bays
+    let seedW=199;
+    function srw(){seedW=(seedW*16807)%2147483647;return(seedW-1)/2147483646;}
+    const segsW=64, left=[];
+    for(let i=0;i<=segsW;i++){
+        let t=i/segsW, y=H*0.015+H*0.968*t;
+        let hw=islandHW(t)*W, cx2=islandCX(t);
+        // Bay indentations — bell-curve inward dips
+        let bay=BAY_T.reduce((s,bt)=>s+Math.max(0,1-Math.abs(t-bt)/0.07),0)*W*0.065;
+        let smoothJag=W*0.008;
+        left.push({x:clamp(cx2-hw+bay+(srw()*smoothJag*2-smoothJag),3,W-3),y});
     }
     islandPoly=[];
     for(let p of right) islandPoly.push(p);
@@ -213,6 +231,25 @@ function renderBG(){
         let hg=bx.createRadialGradient(hx,hy-ry*.3,0,hx,hy,rx*.9);
         hg.addColorStop(0,'rgba(255,255,255,.07)');hg.addColorStop(.5,'rgba(255,255,255,.02)');hg.addColorStop(1,'rgba(0,0,0,.04)');
         bx.fillStyle=hg;bx.beginPath();bx.ellipse(hx,hy,rx,ry,0,0,Math.PI*2);bx.fill();}
+    // Rivers flowing to west-coast bays
+    BAY_T.forEach((bt,bi)=>{
+        let yMouth=H*0.015+H*0.968*bt;
+        let hwM=islandHW(bt)*W, cxM=islandCX(bt);
+        let bayIn=W*0.065; // same as buildIsland bay depth
+        let xMouth=cxM-hwM+bayIn;
+        // River source: deeper inland, slightly north of bay
+        let ySrc=yMouth-H*0.10-bi*H*0.02;
+        let xSrc=cxM+W*0.02*(bi===0?1:-1);
+        // Mid control for curve
+        let xMid=mix(xSrc,xMouth,0.5)+W*(bi===0?0.04:-0.03);
+        let yMid=mix(ySrc,yMouth,0.5);
+        bx.beginPath();bx.moveTo(xSrc,ySrc);
+        bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
+        bx.strokeStyle='rgba(80,140,180,0.55)';bx.lineWidth=5;bx.lineCap='round';bx.stroke();
+        bx.beginPath();bx.moveTo(xSrc,ySrc);
+        bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
+        bx.strokeStyle='rgba(140,200,230,0.45)';bx.lineWidth=2.5;bx.stroke();
+    });
     bx.restore();
     // Canal river (drawn when unlocked, over terrain)
     if(S.canal.unlocked&&S.canal.path.length>=2){
@@ -549,9 +586,20 @@ class Barge{
     }
     draw(c){
         c.save();c.translate(this.x,this.y);
-        c.fillStyle='#8B6914';c.fillRect(-18,-5,36,10);
-        c.fillStyle='#5c430c';c.fillRect(-18,-5,36,3);
-        if(this.cargo.length>0){c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.cargo.length,0,1);}
+        // Hull shadow
+        c.fillStyle='rgba(0,0,0,0.25)';c.fillRect(-20,2,40,5);
+        // Hull
+        c.fillStyle='#7A5510';c.fillRect(-19,-7,38,14);
+        c.fillStyle='#A07830';c.fillRect(-17,-5,34,10);
+        // Gunwale stripe
+        c.fillStyle='#5c430c';c.fillRect(-19,-7,38,3);
+        // Cargo hold or empty indicator
+        if(this.cargo.length>0){
+            c.fillStyle='#8B4513';c.fillRect(-10,-3,20,7);
+            c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.cargo.length,0,1);
+        }else{
+            c.strokeStyle='rgba(0,0,0,0.3)';c.lineWidth=1;c.strokeRect(-10,-3,20,7);
+        }
         c.restore();
     }
 }
@@ -612,10 +660,20 @@ class DockRoute{
 }
 
 function drawDock(c,d){
-    c.fillStyle='#7a5c30';c.fillRect(d.x-12,d.y-8,24,16);
-    c.fillStyle='#5c4020';c.fillRect(d.x-12,d.y-8,24,3);
-    c.fillStyle='#fff';c.font='bold 11px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('⚓',d.x,d.y+1);
-    if(d.cargoQ.length>0){c.fillStyle='#f39c12';c.beginPath();c.arc(d.x+14,d.y-10,8,0,Math.PI*2);c.fill();c.fillStyle='#fff';c.font='bold 9px sans-serif';c.fillText(d.cargoQ.length,d.x+14,d.y-10);}
+    // Dock platform
+    c.fillStyle='#5c4020';c.fillRect(d.x-16,d.y-10,32,20);
+    c.fillStyle='#8B6030';c.fillRect(d.x-14,d.y-8,28,14);
+    // Planks
+    c.strokeStyle='rgba(0,0,0,0.18)';c.lineWidth=1;
+    for(let i=-10;i<14;i+=7){c.beginPath();c.moveTo(d.x-14,d.y+i-8);c.lineTo(d.x+14,d.y+i-8);c.stroke();}
+    // Bollard posts
+    c.fillStyle='#3a2010';c.fillRect(d.x-16,d.y-12,5,5);c.fillRect(d.x+11,d.y-12,5,5);
+    // Anchor label
+    c.fillStyle='#fff';c.font='bold 13px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('⚓',d.x,d.y+1);
+    if(d.cargoQ.length>0){
+        c.fillStyle='#f39c12';c.beginPath();c.arc(d.x+18,d.y-12,9,0,Math.PI*2);c.fill();
+        c.fillStyle='#fff';c.font='bold 9px sans-serif';c.fillText(d.cargoQ.length,d.x+18,d.y-12);
+    }
 }
 
 function flt(x,y,t,col){S.floats.push({x:x+(Math.random()*14-7),y,t,col,life:1.6,max:1.6})}
@@ -787,10 +845,11 @@ document.getElementById('cOk').onclick=()=>{$cdlg.style.display='none';};
 
 function chkCanal(){
     if(S.canal.announced)return;
-    if(!S.farms.some(f=>!f.n&&f.ask>=f.bAsk*2))return;
+    if(S.woolRoutes.length+S.clothRoutes.length<3||S.cash<120)return;
     S.canal.announced=true;S.canal.unlocked=true;
-    buildIsland();renderBG(); // redraw background with canal
-    setTimeout(()=>{$cdlg.style.display='flex';closeAll();},500);
+    // Scroll to show the canal (upper-middle section)
+    world.scrollTo({top:H*0.35,behavior:'smooth'});
+    setTimeout(()=>{$cdlg.style.display='flex';closeAll();},600);
 }
 
 function openBuild(from,to,kind){
@@ -882,6 +941,20 @@ function tick(now){
 
     // DRAW
     if(bgOK)cx.drawImage(bg,0,0);
+    // Canal waterway — drawn every frame so it's never buried under bg redraws
+    if(S.canal.unlocked&&S.canal.path.length>=2){
+        let cp=S.canal.path;
+        cx.beginPath();cx.moveTo(cp[0].x,cp[0].y);
+        for(let i=1;i<cp.length;i++)cx.lineTo(cp[i].x,cp[i].y);
+        cx.strokeStyle='#2A5A6E';cx.lineWidth=30;cx.lineCap='round';cx.lineJoin='round';cx.stroke();
+        cx.beginPath();cx.moveTo(cp[0].x,cp[0].y);
+        for(let i=1;i<cp.length;i++)cx.lineTo(cp[i].x,cp[i].y);
+        cx.strokeStyle='#5BAAC8';cx.lineWidth=20;cx.stroke();
+        cx.beginPath();cx.moveTo(cp[0].x,cp[0].y);
+        for(let i=1;i<cp.length;i++)cx.lineTo(cp[i].x,cp[i].y);
+        cx.strokeStyle='rgba(180,230,255,0.35)';cx.lineWidth=8;cx.stroke();
+        cx.lineCap='butt';cx.lineJoin='miter';
+    }
     // Draw cities first (behind routes)
     S.cities.forEach(c=>c.draw(cx));
     S.woolRoutes.forEach(r=>r.draw(cx));
