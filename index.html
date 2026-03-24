@@ -136,42 +136,59 @@ function pathLens(path){let l=[0];for(let i=1;i<path.length;i++)l.push(l[i-1]+dd
 function pathPos(path,t){let l=pathLens(path),tot=l[l.length-1],tgt=clamp(t,0,1)*tot;for(let i=1;i<path.length;i++){if(l[i]>=tgt||i===path.length-1){let s=l[i]-l[i-1],st=s>0?(tgt-l[i-1])/s:0;return{x:mix(path[i-1].x,path[i].x,st),y:mix(path[i-1].y,path[i].y,st)};}}return{...path[path.length-1]};}
 
 // ═══════════════════════════════════════
-// ISLAND — jagged east coast, smooth west with bays
+// ISLAND — England-like outline
+// N=top, S=bottom; west coast left, east coast right
 // ═══════════════════════════════════════
-// Bay positions on the west coast (t along island 0→1)
-const BAY_T=[0.33, 0.63];
+// West-coast bays: Morecambe Bay (t≈0.20) + Bristol Channel (t≈0.72)
+const BAY_T=[0.20, 0.72];
+const BAY_DEPTH=[0.055, 0.120]; // fraction of W each bay indents
+// East-coast bay: The Wash (t≈0.38)
+const WASH_T=0.38;
+const WASH_DEPTH=0.060;
+
 function islandHW(t){
-    // half-width profile (fraction of W)
-    if(t<0.06)       return mix(0.03,0.15,t/0.06);
-    if(t<0.22)       return mix(0.15,0.28,(t-0.06)/0.16);
-    if(t<0.48)       return mix(0.28,0.36,(t-0.22)/0.26);
-    if(t<0.68)       return mix(0.36,0.40,(t-0.48)/0.20);
-    if(t<0.80)       return mix(0.40,0.32,(t-0.68)/0.12); // waist before cape
-    if(t<0.88)       return mix(0.32,0.38,(t-0.80)/0.08); // south cape bulge
-    return mix(0.38,0.03,(t-0.88)/0.12);
+    // half-width profile (fraction of W) — England shape
+    // Narrow Northumberland top, wide Midlands, SW peninsula tip
+    if(t<0.04)  return mix(0.04,0.13,t/0.04);
+    if(t<0.20)  return mix(0.13,0.19,(t-0.04)/0.16);  // Yorkshire
+    if(t<0.38)  return mix(0.19,0.27,(t-0.20)/0.18);  // Midlands opening
+    if(t<0.55)  return mix(0.27,0.30,(t-0.38)/0.17);  // widest — East Anglia/S.Midlands
+    if(t<0.64)  return mix(0.30,0.28,(t-0.55)/0.09);  // south coast
+    if(t<0.72)  return mix(0.28,0.26,(t-0.64)/0.08);  // Bristol Channel shoulder
+    if(t<0.80)  return mix(0.26,0.18,(t-0.72)/0.08);  // SW peninsula starts
+    if(t<0.88)  return mix(0.18,0.09,(t-0.80)/0.08);  // Cornwall narrows
+    return      mix(0.09,0.03,(t-0.88)/0.12);          // Land's End tip
 }
-function islandCX(t){return W*0.48+Math.sin(t*3.8+0.3)*W*0.04;}
+function islandCX(t){
+    // Shifts west in south (Cornwall) — England leans SW at the tip
+    let swDrift=clamp((t-0.64)/0.36,0,1)*W*0.10;
+    // Slight eastward nudge in the Midlands (East Anglia bulge)
+    let eaBulge=Math.max(0,Math.sin(Math.PI*clamp((t-0.28)/0.28,0,1)))*W*0.025;
+    return W*0.52+eaBulge-swDrift+Math.sin(t*2.6+0.4)*W*0.010;
+}
 function buildIsland(){
-    // East coast: jagged/rocky (larger noise, spiky)
+    // East coast: gentle cliff-like texture; The Wash indents inward
     let seedE=42;
     function sre(){seedE=(seedE*16807)%2147483647;return(seedE-1)/2147483646;}
-    const segsE=64, right=[];
+    const segsE=80, right=[];
     for(let i=0;i<=segsE;i++){
         let t=i/segsE, y=H*0.015+H*0.968*t;
         let hw=islandHW(t)*W, cx2=islandCX(t);
-        let jagAmp=W*(0.035+0.04*Math.abs(Math.sin(t*7.1)));
-        right.push({x:clamp(cx2+hw+(sre()*jagAmp*2-jagAmp),3,W-3),y});
+        // The Wash — bell-curve indent on east coast
+        let wash=Math.max(0,1-Math.abs(t-WASH_T)/0.05)*WASH_DEPTH*W;
+        let jagAmp=W*(0.009+0.006*Math.abs(Math.sin(t*4.8))); // subtle texture only
+        right.push({x:clamp(cx2+hw-wash+(sre()*jagAmp*2-jagAmp),3,W-3),y});
     }
-    // West coast: smooth with 2 bays
+    // West coast: smooth with Morecambe Bay + deep Bristol Channel
     let seedW=199;
     function srw(){seedW=(seedW*16807)%2147483647;return(seedW-1)/2147483646;}
-    const segsW=64, left=[];
+    const segsW=80, left=[];
     for(let i=0;i<=segsW;i++){
         let t=i/segsW, y=H*0.015+H*0.968*t;
         let hw=islandHW(t)*W, cx2=islandCX(t);
-        // Bay indentations — bell-curve inward dips
-        let bay=BAY_T.reduce((s,bt)=>s+Math.max(0,1-Math.abs(t-bt)/0.07),0)*W*0.065;
-        let smoothJag=W*0.008;
+        let bay=BAY_T.reduce((s,bt,bi)=>
+            s+Math.max(0,1-Math.abs(t-bt)/0.055)*BAY_DEPTH[bi]*W,0);
+        let smoothJag=W*0.006;
         left.push({x:clamp(cx2-hw+bay+(srw()*smoothJag*2-smoothJag),3,W-3),y});
     }
     islandPoly=[];
@@ -231,36 +248,53 @@ function renderBG(){
         let hg=bx.createRadialGradient(hx,hy-ry*.3,0,hx,hy,rx*.9);
         hg.addColorStop(0,'rgba(255,255,255,.07)');hg.addColorStop(.5,'rgba(255,255,255,.02)');hg.addColorStop(1,'rgba(0,0,0,.04)');
         bx.fillStyle=hg;bx.beginPath();bx.ellipse(hx,hy,rx,ry,0,0,Math.PI*2);bx.fill();}
-    // Rivers flowing to west-coast bays
+    // Rivers to west-coast bays (Morecambe Bay + Bristol Channel)
     BAY_T.forEach((bt,bi)=>{
         let yMouth=H*0.015+H*0.968*bt;
         let hwM=islandHW(bt)*W, cxM=islandCX(bt);
-        let bayIn=W*0.065; // same as buildIsland bay depth
-        let xMouth=cxM-hwM+bayIn;
-        // River source: deeper inland, slightly north of bay
-        let ySrc=yMouth-H*0.10-bi*H*0.02;
-        let xSrc=cxM+W*0.02*(bi===0?1:-1);
-        // Mid control for curve
-        let xMid=mix(xSrc,xMouth,0.5)+W*(bi===0?0.04:-0.03);
+        let xMouth=cxM-hwM+BAY_DEPTH[bi]*W*0.4; // land side of bay
+        let ySrc=yMouth-H*(bi===1?0.13:0.08);
+        let xSrc=cxM+(bi===0?W*0.04:-W*0.04);
+        let xMid=mix(xSrc,xMouth,0.5)+W*(bi===0?0.05:-0.04);
         let yMid=mix(ySrc,yMouth,0.5);
-        bx.beginPath();bx.moveTo(xSrc,ySrc);
-        bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
-        bx.strokeStyle='rgba(80,140,180,0.55)';bx.lineWidth=5;bx.lineCap='round';bx.stroke();
-        bx.beginPath();bx.moveTo(xSrc,ySrc);
-        bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
-        bx.strokeStyle='rgba(140,200,230,0.45)';bx.lineWidth=2.5;bx.stroke();
+        let lw=bi===1?7:5;
+        bx.beginPath();bx.moveTo(xSrc,ySrc);bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
+        bx.strokeStyle='rgba(80,140,180,0.55)';bx.lineWidth=lw;bx.lineCap='round';bx.stroke();
+        bx.beginPath();bx.moveTo(xSrc,ySrc);bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
+        bx.strokeStyle='rgba(140,200,230,0.45)';bx.lineWidth=lw*0.5;bx.stroke();
     });
+    // River to The Wash (east coast)
+    {let bt=WASH_T,yMouth=H*0.015+H*0.968*bt;
+     let hwM=islandHW(bt)*W,cxM=islandCX(bt);
+     let xMouth=cxM+hwM-WASH_DEPTH*W*0.3;
+     let ySrc=yMouth-H*0.07,xSrc=cxM-W*0.02;
+     let xMid=mix(xSrc,xMouth,0.5),yMid=mix(ySrc,yMouth,0.5)-H*0.01;
+     bx.beginPath();bx.moveTo(xSrc,ySrc);bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
+     bx.strokeStyle='rgba(80,140,180,0.55)';bx.lineWidth=5;bx.lineCap='round';bx.stroke();
+     bx.beginPath();bx.moveTo(xSrc,ySrc);bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
+     bx.strokeStyle='rgba(140,200,230,0.45)';bx.lineWidth=2.5;bx.stroke();}
     bx.restore();
-    // Canal river (drawn when unlocked, over terrain)
-    if(S.canal.unlocked&&S.canal.path.length>=2){
+    // Canal — always drawn: planned (dotted) before unlock, full waterway after
+    if(S.canal.path.length>=2){
         let cp=S.canal.path;
-        bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
-        for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
-        bx.strokeStyle='#3A6A7E';bx.lineWidth=22;bx.lineCap='round';bx.lineJoin='round';bx.stroke();
-        bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
-        for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
-        bx.strokeStyle='#5BAAC8';bx.lineWidth=14;bx.stroke();
-        bx.lineCap='butt';bx.lineJoin='miter';
+        if(!S.canal.unlocked){
+            bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
+            for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
+            bx.strokeStyle='rgba(70,130,175,0.38)';bx.lineWidth=9;
+            bx.setLineDash([14,9]);bx.lineCap='round';bx.lineJoin='round';bx.stroke();
+            bx.setLineDash([]);bx.lineCap='butt';bx.lineJoin='miter';
+        }else{
+            bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
+            for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
+            bx.strokeStyle='#2A5A6E';bx.lineWidth=26;bx.lineCap='round';bx.lineJoin='round';bx.stroke();
+            bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
+            for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
+            bx.strokeStyle='#5BAAC8';bx.lineWidth=17;bx.stroke();
+            bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
+            for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
+            bx.strokeStyle='rgba(180,230,255,0.35)';bx.lineWidth=7;bx.stroke();
+            bx.lineCap='butt';bx.lineJoin='miter';
+        }
     }
     bgOK=true;
 }
@@ -682,21 +716,27 @@ function smk(x,y){for(let i=0;i<3;i++)S.smoke.push({x,y,vx:(Math.random()-.5)*8,
 // ═══════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════
+function rebuildCanalPath(){
+    // Canal follows the island centre, drifting west with the SW peninsula
+    let c0=islandCX(0.07), c1=islandCX(0.24), c2=islandCX(0.43),
+        c3=islandCX(0.61), c4=islandCX(0.78);
+    S.canal.path=[
+        {x:c0,          y:H*0.07},
+        {x:c1+W*0.01,   y:H*0.24},
+        {x:c2-W*0.01,   y:H*0.43},
+        {x:c3-W*0.01,   y:H*0.61},
+        {x:c4-W*0.02,   y:H*0.78},
+    ];
+}
 function resize(){
     W=Math.min(window.innerWidth,960);H=window.innerHeight*HMULT;
     cv.width=W;cv.height=H;
     cv.style.marginLeft=window.innerWidth>960?(window.innerWidth-960)/2+'px':'0';
-    buildIsland();renderBG();
+    buildIsland();rebuildCanalPath();renderBG();
 }
 
 function initWorld(){
-    resize();
-    // Build canal path (needs W,H from resize)
-    let cx2=W*0.5;
-    S.canal.path=[
-        {x:cx2-10,y:H*0.07},{x:cx2+22,y:H*0.25},{x:cx2-18,y:H*0.46},
-        {x:cx2+14,y:H*0.67},{x:cx2-6, y:H*0.87}
-    ];
+    resize(); // builds island, canal path, and renders background
     const dockTs=[0.1,0.3,0.5,0.7,0.9];
     const dockPos=dockTs.map(t=>pathPos(S.canal.path,t));
 
@@ -847,8 +887,8 @@ function chkCanal(){
     if(S.canal.announced)return;
     if(S.woolRoutes.length+S.clothRoutes.length<3||S.cash<120)return;
     S.canal.announced=true;S.canal.unlocked=true;
-    // Scroll to show the canal (upper-middle section)
-    world.scrollTo({top:H*0.35,behavior:'smooth'});
+    renderBG(); // re-render background: dotted planned line → full waterway
+    world.scrollTo({top:H*0.30,behavior:'smooth'});
     setTimeout(()=>{$cdlg.style.display='flex';closeAll();},600);
 }
 
@@ -941,20 +981,6 @@ function tick(now){
 
     // DRAW
     if(bgOK)cx.drawImage(bg,0,0);
-    // Canal waterway — drawn every frame so it's never buried under bg redraws
-    if(S.canal.unlocked&&S.canal.path.length>=2){
-        let cp=S.canal.path;
-        cx.beginPath();cx.moveTo(cp[0].x,cp[0].y);
-        for(let i=1;i<cp.length;i++)cx.lineTo(cp[i].x,cp[i].y);
-        cx.strokeStyle='#2A5A6E';cx.lineWidth=30;cx.lineCap='round';cx.lineJoin='round';cx.stroke();
-        cx.beginPath();cx.moveTo(cp[0].x,cp[0].y);
-        for(let i=1;i<cp.length;i++)cx.lineTo(cp[i].x,cp[i].y);
-        cx.strokeStyle='#5BAAC8';cx.lineWidth=20;cx.stroke();
-        cx.beginPath();cx.moveTo(cp[0].x,cp[0].y);
-        for(let i=1;i<cp.length;i++)cx.lineTo(cp[i].x,cp[i].y);
-        cx.strokeStyle='rgba(180,230,255,0.35)';cx.lineWidth=8;cx.stroke();
-        cx.lineCap='butt';cx.lineJoin='miter';
-    }
     // Draw cities first (behind routes)
     S.cities.forEach(c=>c.draw(cx));
     S.woolRoutes.forEach(r=>r.draw(cx));
