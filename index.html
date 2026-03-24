@@ -8,8 +8,9 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body,html{width:100%;height:100%;background:#5E7F9C;font-family:Georgia,serif;color:#3e3832;overflow:hidden;user-select:none;-webkit-user-select:none}
-#world{width:100vw;height:100vh;overflow-y:auto;overflow-x:hidden;position:relative}
-canvas{display:block;touch-action:pan-y}
+#world{width:100vw;height:100vh;overflow-y:auto;overflow-x:auto;position:relative}
+canvas{display:block;touch-action:auto}
+button.rail{background:#7A4E2A;color:#fff;border-color:#4a2e10}
 .panel{position:fixed;background:rgba(244,241,234,.96);border:2px solid #8A7B66;border-radius:8px;padding:14px 18px;box-shadow:0 4px 16px rgba(0,0,0,.18);z-index:10}
 #hud{top:10px;left:50%;transform:translateX(-50%);display:flex;gap:28px;font-size:1.15rem;font-weight:bold;padding:8px 22px;white-space:nowrap}
 #hud .cash{color:#4F7942}
@@ -34,7 +35,7 @@ button:disabled{opacity:.4;cursor:default}
 </head>
 <body>
 <div id="world"><canvas id="c"></canvas></div>
-<div id="hud" class="panel"><div>Bank: $<span class="cash" id="cash">50</span></div><div>Day <span id="day">1</span></div></div>
+<div id="hud" class="panel"><div>Bank: $<span class="cash" id="cash">50</span></div><div>Day <span id="day">1</span></div><button id="btnStation" class="rail" style="display:none;padding:4px 10px;font-size:.85rem" title="Click map to place">🚂 Station ($100)</button></div>
 <div id="hint" class="hint">Drag from a Farm to a Factory for wool routes. Drag from a Factory to a City for cloth routes.</div>
 
 <div id="buildDlg" class="panel modal">
@@ -58,25 +59,25 @@ button:disabled{opacity:.4;cursor:default}
 
 <div id="phaseDlg" class="panel modal">
 <h2>The Bottleneck</h2>
-<p style="text-align:left;font-size:.93rem;line-height:1.45;margin-bottom:8px">Your margins are thinning. Nearby farms charge more, distant ones eat profits in transport. The carts are too slow and carry too little.</p>
-<p style="text-align:left;font-size:.93rem;line-height:1.45">Word reaches you of a new invention: <b>the canal barge</b>. Ten times the cargo at a fraction of the cost per mile — but it needs flat waterways and serious capital…</p>
+<p style="text-align:left;font-size:.93rem;line-height:1.45;margin-bottom:8px">Your margins are thinning. Nearby farms are charging more and more, distant ones eat profits in transport. The carts are too slow and carry too little.</p>
+<p style="text-align:left;font-size:.93rem;line-height:1.45">Word reaches you of a new invention: <b>the steam railway</b>. Lay track, build stations, and move bulk wool across the island at a fraction of the cart cost.</p>
 <p style="font-style:italic;color:#B35B47;margin-top:12px;font-size:.88rem">Phase 1 complete — the cart era has reached its limit.</p>
 <button id="pCont" class="go" style="margin-top:8px">Keep Playing</button>
 </div>
 
-<div id="canalDlg" class="panel modal">
-<h2>⚓ The Canal Opens!</h2>
-<p style="text-align:left;font-size:.93rem;line-height:1.45;margin-bottom:8px">High wool prices have attracted investors. A canal has been cut through the island — barges run north to south, carrying bulk cargo for free.</p>
-<p style="text-align:left;font-size:.93rem;line-height:1.45">Build <b>feeder routes</b> Farm→Dock and <b>delivery routes</b> Dock→Factory. Barges handle the middle leg at no cost.</p>
-<button id="cOk" class="go" style="margin-top:8px">Open for Business</button>
+<div id="railDlg" class="panel modal">
+<h2>🚂 The Railway Age!</h2>
+<p style="text-align:left;font-size:.93rem;line-height:1.45;margin-bottom:8px">Two farms are gouging prices — time to bypass them with the iron road.</p>
+<p style="text-align:left;font-size:.93rem;line-height:1.45">Press <b>🚂 Station ($100)</b> in the HUD then tap the map to place a station. Drag between two stations to lay track. Then build <b>Farm→Station</b> and <b>Station→Factory</b> feeder routes as before.</p>
+<button id="rOk" class="go" style="margin-top:8px">Start Building</button>
 </div>
 
-<div id="dockDlg" class="panel modal">
-<h2 id="ddTitle">Dock Route</h2>
-<div class="row"><span id="ddLabA">Farm Ask</span><span>$<span id="ddA"></span></span></div>
-<div class="row"><span>Transport</span><span>$<span id="ddT"></span></span></div>
-<div class="row"><span id="ddLabB">Info</span><span id="ddB"></span></div>
-<div class="btns"><button id="ddCancel">Cancel</button><button id="ddBuild" class="go">Build</button></div>
+<div id="stationDlg" class="panel modal">
+<h2 id="sdTitle">Station Route</h2>
+<div class="row"><span id="sdLabA">Farm Ask</span><span>$<span id="sdA"></span></span></div>
+<div class="row"><span>Transport</span><span>$<span id="sdT"></span></span></div>
+<div class="row"><span id="sdLabB">Info</span><span id="sdB"></span></div>
+<div class="btns"><button id="sdCancel">Cancel</button><button id="sdBuild" class="go">Build</button></div>
 </div>
 
 <script>
@@ -89,7 +90,7 @@ const WAREHOUSE_MAX=20;      // cloth units a factory can store
 const PROC_T=2.5;            // seconds to turn 1 wool → 1 cloth
 const SDECAY=0.12;
 const NFARMS=14, NCITIES=6;
-const BARGE_SPD=30, BARGE_CAP=5, NBARGES=3, NDOCKS=5;
+const TRAIN_SPD=80, TRAIN_CAP=6, STATION_COST=100;
 
 const cv=document.getElementById('c');
 const cx=cv.getContext('2d',{alpha:false});
@@ -107,7 +108,9 @@ const S={
     floats:[],smoke:[],
     drag:false,dragFrom:null,dragType:null,mouse:{x:0,y:0},
     selRoute:null,pending:null,
-    canal:{unlocked:false,announced:false,path:[],docks:[],barges:[],dockRoutes:[]}
+    placingStation:false,
+    farmDoublings:0,
+    rail:{unlocked:false,announced:false,stations:[],trains:[],trackRoutes:[],feederRoutes:[]}
 };
 
 // ═══════════════════════════════════════
@@ -130,56 +133,44 @@ function segD2(p,a,b){
 }
 
 // ═══════════════════════════════════════
-// CANAL PATH HELPERS
+// ISLAND — wide-narrow-wide silhouette
+// Canvas is 2× screen width; island fills 2× at top & bottom,
+// pinches to ~1× at the central waist.
 // ═══════════════════════════════════════
-function pathLens(path){let l=[0];for(let i=1;i<path.length;i++)l.push(l[i-1]+dd(path[i-1].x,path[i-1].y,path[i].x,path[i].y));return l;}
-function pathPos(path,t){let l=pathLens(path),tot=l[l.length-1],tgt=clamp(t,0,1)*tot;for(let i=1;i<path.length;i++){if(l[i]>=tgt||i===path.length-1){let s=l[i]-l[i-1],st=s>0?(tgt-l[i-1])/s:0;return{x:mix(path[i-1].x,path[i].x,st),y:mix(path[i-1].y,path[i].y,st)};}}return{...path[path.length-1]};}
-
-// ═══════════════════════════════════════
-// ISLAND — England-like outline
-// N=top, S=bottom; west coast left, east coast right
-// ═══════════════════════════════════════
-// West-coast bays: Morecambe Bay (t≈0.20) + Bristol Channel (t≈0.72)
-const BAY_T=[0.20, 0.72];
-const BAY_DEPTH=[0.055, 0.120]; // fraction of W each bay indents
-// East-coast bay: The Wash (t≈0.38)
-const WASH_T=0.38;
-const WASH_DEPTH=0.060;
+// Bays on each coast (t along island 0→1)
+const BAY_T=[0.22, 0.70];        // west-coast bays
+const BAY_DEPTH=[0.05, 0.10];    // fraction of W each bay indents
+const WASH_T=0.42;               // east-coast estuary indent
+const WASH_DEPTH=0.05;
 
 function islandHW(t){
-    // half-width profile (fraction of W) — England shape
-    // Narrow Northumberland top, wide Midlands, SW peninsula tip
-    if(t<0.04)  return mix(0.04,0.13,t/0.04);
-    if(t<0.20)  return mix(0.13,0.19,(t-0.04)/0.16);  // Yorkshire
-    if(t<0.38)  return mix(0.19,0.27,(t-0.20)/0.18);  // Midlands opening
-    if(t<0.55)  return mix(0.27,0.30,(t-0.38)/0.17);  // widest — East Anglia/S.Midlands
-    if(t<0.64)  return mix(0.30,0.28,(t-0.55)/0.09);  // south coast
-    if(t<0.72)  return mix(0.28,0.26,(t-0.64)/0.08);  // Bristol Channel shoulder
-    if(t<0.80)  return mix(0.26,0.18,(t-0.72)/0.08);  // SW peninsula starts
-    if(t<0.88)  return mix(0.18,0.09,(t-0.80)/0.08);  // Cornwall narrows
-    return      mix(0.09,0.03,(t-0.88)/0.12);          // Land's End tip
+    // half-width (fraction of W).  W = 2×screen, so:
+    //   hw=0.48 → island ≈ 2×screen ("wide" points)
+    //   hw=0.24 → island ≈ 1×screen ("narrow" waist)
+    if(t<0.04)  return mix(0.04,0.16,t/0.04);           // narrow tip
+    if(t<0.28)  return mix(0.16,0.46,(t-0.04)/0.24);    // northern lobe widens
+    if(t<0.42)  return mix(0.46,0.24,(t-0.28)/0.14);    // pinch to waist
+    if(t<0.58)  return mix(0.24,0.46,(t-0.42)/0.16);    // southern lobe opens
+    if(t<0.76)  return mix(0.46,0.42,(t-0.58)/0.18);    // broad south plateau
+    if(t<0.88)  return mix(0.42,0.18,(t-0.76)/0.12);    // SW peninsula
+    return      mix(0.18,0.04,(t-0.88)/0.12);            // tip
 }
 function islandCX(t){
-    // Shifts west in south (Cornwall) — England leans SW at the tip
-    let swDrift=clamp((t-0.64)/0.36,0,1)*W*0.10;
-    // Slight eastward nudge in the Midlands (East Anglia bulge)
-    let eaBulge=Math.max(0,Math.sin(Math.PI*clamp((t-0.28)/0.28,0,1)))*W*0.025;
-    return W*0.52+eaBulge-swDrift+Math.sin(t*2.6+0.4)*W*0.010;
+    // Centre drifts slightly west in the south (peninsula effect)
+    let drift=clamp((t-0.68)/0.32,0,1)*W*0.06;
+    return W*0.50-drift+Math.sin(t*2.4+0.5)*W*0.008;
 }
 function buildIsland(){
-    // East coast: gentle cliff-like texture; The Wash indents inward
     let seedE=42;
     function sre(){seedE=(seedE*16807)%2147483647;return(seedE-1)/2147483646;}
     const segsE=80, right=[];
     for(let i=0;i<=segsE;i++){
         let t=i/segsE, y=H*0.015+H*0.968*t;
         let hw=islandHW(t)*W, cx2=islandCX(t);
-        // The Wash — bell-curve indent on east coast
-        let wash=Math.max(0,1-Math.abs(t-WASH_T)/0.05)*WASH_DEPTH*W;
-        let jagAmp=W*(0.009+0.006*Math.abs(Math.sin(t*4.8))); // subtle texture only
-        right.push({x:clamp(cx2+hw-wash+(sre()*jagAmp*2-jagAmp),3,W-3),y});
+        let washIn=Math.max(0,1-Math.abs(t-WASH_T)/0.05)*WASH_DEPTH*W;
+        let jag=W*(0.008+0.005*Math.abs(Math.sin(t*4.5)));
+        right.push({x:clamp(cx2+hw-washIn+(sre()*jag*2-jag),3,W-3),y});
     }
-    // West coast: smooth with Morecambe Bay + deep Bristol Channel
     let seedW=199;
     function srw(){seedW=(seedW*16807)%2147483647;return(seedW-1)/2147483646;}
     const segsW=80, left=[];
@@ -188,8 +179,8 @@ function buildIsland(){
         let hw=islandHW(t)*W, cx2=islandCX(t);
         let bay=BAY_T.reduce((s,bt,bi)=>
             s+Math.max(0,1-Math.abs(t-bt)/0.055)*BAY_DEPTH[bi]*W,0);
-        let smoothJag=W*0.006;
-        left.push({x:clamp(cx2-hw+bay+(srw()*smoothJag*2-smoothJag),3,W-3),y});
+        let jag=W*0.005;
+        left.push({x:clamp(cx2-hw+bay+(srw()*jag*2-jag),3,W-3),y});
     }
     islandPoly=[];
     for(let p of right) islandPoly.push(p);
@@ -274,28 +265,6 @@ function renderBG(){
      bx.beginPath();bx.moveTo(xSrc,ySrc);bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
      bx.strokeStyle='rgba(140,200,230,0.45)';bx.lineWidth=2.5;bx.stroke();}
     bx.restore();
-    // Canal — always drawn: planned (dotted) before unlock, full waterway after
-    if(S.canal.path.length>=2){
-        let cp=S.canal.path;
-        if(!S.canal.unlocked){
-            bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
-            for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
-            bx.strokeStyle='rgba(70,130,175,0.38)';bx.lineWidth=9;
-            bx.setLineDash([14,9]);bx.lineCap='round';bx.lineJoin='round';bx.stroke();
-            bx.setLineDash([]);bx.lineCap='butt';bx.lineJoin='miter';
-        }else{
-            bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
-            for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
-            bx.strokeStyle='#2A5A6E';bx.lineWidth=26;bx.lineCap='round';bx.lineJoin='round';bx.stroke();
-            bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
-            for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
-            bx.strokeStyle='#5BAAC8';bx.lineWidth=17;bx.stroke();
-            bx.beginPath();bx.moveTo(cp[0].x,cp[0].y);
-            for(let i=1;i<cp.length;i++)bx.lineTo(cp[i].x,cp[i].y);
-            bx.strokeStyle='rgba(180,230,255,0.35)';bx.lineWidth=7;bx.stroke();
-            bx.lineCap='butt';bx.lineJoin='miter';
-        }
-    }
     bgOK=true;
 }
 
@@ -596,49 +565,67 @@ class Route{
 }
 
 // ═══════════════════════════════════════
-// CANAL ENTITIES
+// RAILROAD ENTITIES
 // ═══════════════════════════════════════
-class Dock{
-    constructor(x,y,idx){this.type='dock';this.x=x;this.y=y;this.idx=idx;this.r=20;this.cargoQ=[];}
+class Station{
+    constructor(x,y){this.type='station';this.x=x;this.y=y;this.r=22;this.cargoQ=[];}
 }
 
-class Barge{
-    constructor(t,dir){this.t=t;this.dir=dir;this.cargo=[];this.x=0;this.y=0;}
+// Train bounces between two stations on a TrackRoute
+class Train{
+    constructor(route){
+        this.route=route;this.p=0;this.dir=1;this.cargo=[];
+        let pos=mix(route.from.x,route.to.x,0);
+        this.x=route.from.x;this.y=route.from.y;
+    }
     update(dt){
-        let path=S.canal.path,l=pathLens(path),tot=l[l.length-1];
-        if(!tot)return;
-        this.t+=BARGE_SPD*dt/tot*this.dir;
-        if(this.t>=1){this.t=1;this.dir=-1;}
-        if(this.t<=0){this.t=0;this.dir=1;}
-        let pos=pathPos(path,this.t);this.x=pos.x;this.y=pos.y;
-        for(let dock of S.canal.docks){
-            if(dd(this.x,this.y,dock.x,dock.y)>28)continue;
-            while(this.cargo.length<BARGE_CAP&&dock.cargoQ.length>0)this.cargo.push(dock.cargoQ.shift());
-            let hasOut=S.canal.dockRoutes.some(r=>r.kind==='dock_factory'&&r.from===dock);
-            if(hasOut&&this.cargo.length>0)dock.cargoQ.push(this.cargo.shift());
+        let r=this.route,spd=TRAIN_SPD/r.dist;
+        this.p+=dt*spd*this.dir;
+        if(this.p>=1){this.p=1;this.dir=-1;}
+        if(this.p<=0){this.p=0;this.dir=1;}
+        this.x=mix(r.from.x,r.to.x,this.p);
+        this.y=mix(r.from.y,r.to.y,this.p);
+        // At each end: exchange cargo with station
+        let atFrom=this.p<=0.04&&this.dir===1;
+        let atTo=this.p>=0.96&&this.dir===-1;
+        let stn=atFrom?r.from:atTo?r.to:null;
+        if(stn){
+            // pick up
+            while(this.cargo.length<TRAIN_CAP&&stn.cargoQ.length>0)
+                this.cargo.push(stn.cargoQ.shift());
+            // drop if this station has outbound station_factory routes
+            let hasOut=S.rail.feederRoutes.some(fr=>fr.kind==='station_factory'&&fr.from===stn);
+            while(hasOut&&this.cargo.length>0)stn.cargoQ.push(this.cargo.shift());
         }
     }
     draw(c){
         c.save();c.translate(this.x,this.y);
-        // Hull shadow
-        c.fillStyle='rgba(0,0,0,0.25)';c.fillRect(-20,2,40,5);
-        // Hull
-        c.fillStyle='#7A5510';c.fillRect(-19,-7,38,14);
-        c.fillStyle='#A07830';c.fillRect(-17,-5,34,10);
-        // Gunwale stripe
-        c.fillStyle='#5c430c';c.fillRect(-19,-7,38,3);
-        // Cargo hold or empty indicator
+        let ang=Math.atan2(this.route.to.y-this.route.from.y,this.route.to.x-this.route.from.x);
+        if(this.dir===-1)ang+=Math.PI;
+        c.rotate(ang);
+        // Shadow
+        c.fillStyle='rgba(0,0,0,0.22)';c.fillRect(-14,3,28,5);
+        // Boiler
+        c.fillStyle='#3a3028';c.fillRect(-13,-5,26,10);
+        c.fillStyle='#555';c.beginPath();c.arc(-8,0,5,0,Math.PI*2);c.fill();
+        c.beginPath();c.arc(4,0,5,0,Math.PI*2);c.fill();
+        // Chimney
+        c.fillStyle='#222';c.fillRect(8,-9,5,5);
+        c.fillStyle='#333';c.fillRect(7,-11,7,2);
+        // Cargo
         if(this.cargo.length>0){
-            c.fillStyle='#8B4513';c.fillRect(-10,-3,20,7);
-            c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.cargo.length,0,1);
-        }else{
-            c.strokeStyle='rgba(0,0,0,0.3)';c.lineWidth=1;c.strokeRect(-10,-3,20,7);
+            c.fillStyle='#8B6B4A';c.fillRect(-11,-4,14,7);
+            c.fillStyle='#fff';c.font='bold 8px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.cargo.length,-4,1);
         }
+        // Wheels
+        c.fillStyle='#222';
+        [-8,4].forEach(wx=>{c.beginPath();c.arc(wx,5,3,0,Math.PI*2);c.fill();});
         c.restore();
     }
 }
 
-class DockCart{
+// FeederCart handles farm→station and station→factory legs
+class FeederCart{
     constructor(route){this.route=route;this.p=0;this.dir=1;this.st='move';this.tmr=0;this.cost=0;this.carrying=false;}
     update(dt){
         let r=this.route,ttc=r.dist/CART_SPD;
@@ -646,7 +633,7 @@ class DockCart{
             this.p+=dt/ttc*this.dir;
             if(this.p>=1){
                 this.p=1;
-                if(r.kind==='farm_dock'){
+                if(r.kind==='farm_station'){
                     r.to.cargoQ.push(this.cost);this.carrying=false;this.dir=-1;
                 }else{
                     if(r.to.woolQ<8){
@@ -658,15 +645,15 @@ class DockCart{
                 }
             }else if(this.p<=0){
                 this.p=0;
-                if(r.kind==='farm_dock'){this.st='loading';this.tmr=LOAD_TIME;}
-                else this.st='waitDock';
+                if(r.kind==='farm_station'){this.st='loading';this.tmr=LOAD_TIME;}
+                else this.st='waitStn';
             }
         }else if(this.st==='loading'){
             this.tmr-=dt;
             if(this.tmr<=0){let f=r.from,t1=Math.round(r.dist*CPX);this.cost=f.ask+t1;addCash(-this.cost);f.str+=1;this.carrying=true;this.dir=1;this.st='move';}
-        }else if(this.st==='waitDock'){
-            if(r.from.cargoQ.length>0){this.cost=r.from.cargoQ.shift();this.tmr=LOAD_TIME;this.st='dockLoad';}
-        }else if(this.st==='dockLoad'){
+        }else if(this.st==='waitStn'){
+            if(r.from.cargoQ.length>0){this.cost=r.from.cargoQ.shift();this.tmr=LOAD_TIME;this.st='stnLoad';}
+        }else if(this.st==='stnLoad'){
             this.tmr-=dt;if(this.tmr<=0){this.carrying=true;this.dir=1;this.st='move';}
         }else if(this.st==='waitFac'){
             if(r.to.woolQ<8)this.st='move';
@@ -683,30 +670,52 @@ class DockCart{
     }
 }
 
-class DockRoute{
-    constructor(from,to,kind){this.from=from;this.to=to;this.kind=kind;this.dist=dd(from.x,from.y,to.x,to.y);this.carts=[new DockCart(this)];}
+class FeederRoute{
+    constructor(from,to,kind){this.from=from;this.to=to;this.kind=kind;this.dist=dd(from.x,from.y,to.x,to.y);this.carts=[new FeederCart(this)];}
     update(dt){this.carts.forEach(c=>c.update(dt));}
     draw(c){
         c.beginPath();c.moveTo(this.from.x,this.from.y);c.lineTo(this.to.x,this.to.y);
-        c.strokeStyle='rgba(74,110,52,.5)';c.lineWidth=2;c.setLineDash([4,6]);c.stroke();c.setLineDash([]);
+        c.strokeStyle='rgba(122,78,42,.5)';c.lineWidth=2;c.setLineDash([4,6]);c.stroke();c.setLineDash([]);
         this.carts.forEach(ct=>ct.draw(c));
     }
 }
 
-function drawDock(c,d){
-    // Dock platform
-    c.fillStyle='#5c4020';c.fillRect(d.x-16,d.y-10,32,20);
-    c.fillStyle='#8B6030';c.fillRect(d.x-14,d.y-8,28,14);
-    // Planks
-    c.strokeStyle='rgba(0,0,0,0.18)';c.lineWidth=1;
-    for(let i=-10;i<14;i+=7){c.beginPath();c.moveTo(d.x-14,d.y+i-8);c.lineTo(d.x+14,d.y+i-8);c.stroke();}
-    // Bollard posts
-    c.fillStyle='#3a2010';c.fillRect(d.x-16,d.y-12,5,5);c.fillRect(d.x+11,d.y-12,5,5);
-    // Anchor label
-    c.fillStyle='#fff';c.font='bold 13px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('⚓',d.x,d.y+1);
-    if(d.cargoQ.length>0){
-        c.fillStyle='#f39c12';c.beginPath();c.arc(d.x+18,d.y-12,9,0,Math.PI*2);c.fill();
-        c.fillStyle='#fff';c.font='bold 9px sans-serif';c.fillText(d.cargoQ.length,d.x+18,d.y-12);
+// TrackRoute connects two stations; carries one Train
+class TrackRoute{
+    constructor(from,to){this.from=from;this.to=to;this.dist=dd(from.x,from.y,to.x,to.y);this.trains=[new Train(this)];}
+    update(dt){this.trains.forEach(t=>t.update(dt));}
+    draw(c){
+        // Rail ties
+        let dx=this.to.x-this.from.x,dy=this.to.y-this.from.y;
+        let len=Math.hypot(dx,dy),nx=-dy/len,ny=dx/len;
+        let steps=Math.max(4,Math.floor(len/18));
+        c.strokeStyle='rgba(80,55,30,0.7)';c.lineWidth=3;
+        for(let i=0;i<=steps;i++){
+            let t=i/steps,cx2=mix(this.from.x,this.to.x,t),cy2=mix(this.from.y,this.to.y,t);
+            c.beginPath();c.moveTo(cx2+nx*5,cy2+ny*5);c.lineTo(cx2-nx*5,cy2-ny*5);c.stroke();
+        }
+        // Rails
+        c.strokeStyle='#7a6848';c.lineWidth=2;
+        c.beginPath();c.moveTo(this.from.x+nx*4,this.from.y+ny*4);c.lineTo(this.to.x+nx*4,this.to.y+ny*4);c.stroke();
+        c.beginPath();c.moveTo(this.from.x-nx*4,this.from.y-ny*4);c.lineTo(this.to.x-nx*4,this.to.y-ny*4);c.stroke();
+        this.trains.forEach(t=>t.draw(c));
+    }
+}
+
+function drawStation(c,s){
+    let sel=S.placingStation;
+    // Platform
+    c.fillStyle='#4a3820';c.fillRect(s.x-18,s.y-10,36,20);
+    c.fillStyle='#7a6040';c.fillRect(s.x-16,s.y-8,32,16);
+    // Roof canopy
+    c.fillStyle='#2a1e10';c.fillRect(s.x-18,s.y-14,36,5);
+    // Column supports
+    c.fillStyle='#3a2a18';c.fillRect(s.x-16,s.y-14,3,18);c.fillRect(s.x+13,s.y-14,3,18);
+    // Label
+    c.fillStyle='#fff';c.font='bold 11px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('🚂',s.x,s.y+1);
+    if(s.cargoQ.length>0){
+        c.fillStyle='#f39c12';c.beginPath();c.arc(s.x+20,s.y-14,9,0,Math.PI*2);c.fill();
+        c.fillStyle='#fff';c.font='bold 9px sans-serif';c.fillText(s.cargoQ.length,s.x+20,s.y-14);
     }
 }
 
@@ -716,33 +725,15 @@ function smk(x,y){for(let i=0;i<3;i++)S.smoke.push({x,y,vx:(Math.random()-.5)*8,
 // ═══════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════
-function rebuildCanalPath(){
-    // Canal follows the island centre, drifting west with the SW peninsula
-    let c0=islandCX(0.07), c1=islandCX(0.24), c2=islandCX(0.43),
-        c3=islandCX(0.61), c4=islandCX(0.78);
-    S.canal.path=[
-        {x:c0,          y:H*0.07},
-        {x:c1+W*0.01,   y:H*0.24},
-        {x:c2-W*0.01,   y:H*0.43},
-        {x:c3-W*0.01,   y:H*0.61},
-        {x:c4-W*0.02,   y:H*0.78},
-    ];
-}
 function resize(){
-    W=Math.min(window.innerWidth,960);H=window.innerHeight*HMULT;
+    W=window.innerWidth*2;H=window.innerHeight*HMULT;
     cv.width=W;cv.height=H;
-    cv.style.marginLeft=window.innerWidth>960?(window.innerWidth-960)/2+'px':'0';
-    buildIsland();rebuildCanalPath();renderBG();
+    buildIsland();renderBG();
 }
 
 function initWorld(){
-    resize(); // builds island, canal path, and renders background
-    const dockTs=[0.1,0.3,0.5,0.7,0.9];
-    const dockPos=dockTs.map(t=>pathPos(S.canal.path,t));
-
+    resize(); // builds island and renders background
     const placed=[];const MIN=85;
-    // Reserve dock positions so nothing spawns on top of them
-    dockPos.forEach(p=>placed.push(p));
 
     function place(yMin,yMax,pad,minD){
         minD=minD||MIN;
@@ -773,12 +764,10 @@ function initWorld(){
     // 3 factories in wide south band
     for(let i=0;i<3;i++){let p=place(H*.70,H*.88,.10,120);if(p)S.factories.push(new Factory(p.x,p.y));}
     // 14 farms
-    for(let i=0;i<NFARMS;i++){let p=place(H*.04,H*.78,.08);if(p)S.farms.push(new Farm(p.x,p.y,p.y<H*.5));}
-    // Create docks and barges (hidden until canal unlocks)
-    dockPos.forEach((p,i)=>S.canal.docks.push(new Dock(p.x,p.y,i)));
-    for(let i=0;i<NBARGES;i++){let t=i/NBARGES,b=new Barge(t,i%2===0?1:-1),pos=pathPos(S.canal.path,t);b.x=pos.x;b.y=pos.y;S.canal.barges.push(b);}
+    for(let i=0;i<NFARMS;i++){let p=place(H*.04,H*.78,.07);if(p)S.farms.push(new Farm(p.x,p.y,p.y<H*.5));}
 
-    setTimeout(()=>world.scrollTo(0,H),120);
+    // Start scrolled to bottom-center
+    setTimeout(()=>world.scrollTo(W/2-window.innerWidth/2,H),120);
 }
 window.addEventListener('resize',()=>resize());
 
@@ -796,12 +785,25 @@ world.addEventListener('pointerdown',e=>{
     if(e.target.closest('.panel'))return;
     document.getElementById('hint').style.opacity='0';
     let p=cpos(e);
-    // Can drag FROM farms (wool) or FROM factories (cloth) or FROM docks (dock_factory)
+    // Station placement mode
+    if(S.placingStation){
+        if(ptIn(p.x,p.y,islandPoly)&&S.cash>=STATION_COST){
+            addCash(-STATION_COST);
+            S.rail.stations.push(new Station(p.x,p.y));
+        }
+        S.placingStation=false;
+        document.getElementById('btnStation').style.outline='';
+        return;
+    }
+    // Drag from station → station (track) or station → factory (feeder)
+    if(S.rail.unlocked){
+        let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
+        if(hs){startDrag(e,hs,'station');return;}
+    }
     let hf=hitEntity(p,S.farms);
     if(hf){startDrag(e,hf,'wool');return;}
     let hfac=hitEntity(p,S.factories);
     if(hfac){startDrag(e,hfac,'cloth');return;}
-    if(S.canal.unlocked){let hd=S.canal.docks.find(d=>dd(p.x,p.y,d.x,d.y)<d.r*1.4);if(hd){startDrag(e,hd,'dock');return;}}
     // Click route?
     let allRoutes=[...S.woolRoutes,...S.clothRoutes];
     let best=null,bd=18;
@@ -812,7 +814,7 @@ world.addEventListener('pointerdown',e=>{
 
 function startDrag(e,entity,type){
     S.drag=true;S.dragFrom=entity;S.dragType=type;S.mouse=cpos(e);
-    world.style.overflowY='hidden';cv.style.touchAction='none';
+    world.style.overflow='hidden';cv.style.touchAction='none';
     cv.setPointerCapture(e.pointerId);e.preventDefault();closeAll();
 }
 
@@ -820,7 +822,7 @@ world.addEventListener('pointermove',e=>{if(S.drag){e.preventDefault();S.mouse=c
 
 window.addEventListener('pointerup',e=>{
     if(!S.drag)return;
-    S.drag=false;world.style.overflowY='auto';cv.style.touchAction='pan-y';
+    S.drag=false;world.style.overflow='auto';cv.style.touchAction='auto';
     if(cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId);
     let p=cpos(e);
     if(S.dragType==='wool'){
@@ -828,10 +830,10 @@ window.addEventListener('pointerup',e=>{
         if(tf&&S.dragFrom){
             let ex=S.woolRoutes.find(r=>r.from===S.dragFrom&&r.to===tf);
             if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tf,'wool');
-        }else if(S.canal.unlocked&&S.dragFrom){
-            // Farm → Dock
-            let hd=S.canal.docks.find(d=>dd(p.x,p.y,d.x,d.y)<d.r*1.4);
-            if(hd){let ex=S.canal.dockRoutes.find(r=>r.kind==='farm_dock'&&r.from===S.dragFrom&&r.to===hd);if(!ex)openDockBuild(S.dragFrom,hd,'farm_dock');}
+        }else if(S.rail.unlocked&&S.dragFrom){
+            // Farm → Station feeder
+            let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
+            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='farm_station'&&r.from===S.dragFrom&&r.to===hs);if(!ex)openStationBuild(S.dragFrom,hs,'farm_station');}
         }
     }else if(S.dragType==='cloth'){
         let tc=hitEntity(p,S.cities);
@@ -839,10 +841,16 @@ window.addEventListener('pointerup',e=>{
             let ex=S.clothRoutes.find(r=>r.from===S.dragFrom&&r.to===tc);
             if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tc,'cloth');
         }
-    }else if(S.dragType==='dock'){
-        // Dock → Factory
-        let tf=hitEntity(p,S.factories);
-        if(tf&&S.dragFrom){let ex=S.canal.dockRoutes.find(r=>r.kind==='dock_factory'&&r.from===S.dragFrom&&r.to===tf);if(!ex)openDockBuild(S.dragFrom,tf,'dock_factory');}
+    }else if(S.dragType==='station'){
+        // Station → Station: lay track; Station → Factory: feeder
+        let hs2=S.rail.stations.find(s=>s!==S.dragFrom&&dd(p.x,p.y,s.x,s.y)<s.r*1.4);
+        if(hs2){
+            let ex=S.rail.trackRoutes.find(r=>(r.from===S.dragFrom&&r.to===hs2)||(r.from===hs2&&r.to===S.dragFrom));
+            if(!ex)S.rail.trackRoutes.push(new TrackRoute(S.dragFrom,hs2));
+        }else{
+            let tf=hitEntity(p,S.factories);
+            if(tf){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_factory'&&r.from===S.dragFrom&&r.to===tf);if(!ex)openStationBuild(S.dragFrom,tf,'station_factory');}
+        }
     }
     S.dragFrom=null;S.dragType=null;
 });
@@ -851,45 +859,51 @@ window.addEventListener('pointerup',e=>{
 // DIALOGS
 // ═══════════════════════════════════════
 const $b=document.getElementById('buildDlg'),$m=document.getElementById('mgr'),$p=document.getElementById('phaseDlg');
-const $dd=document.getElementById('dockDlg'),$cdlg=document.getElementById('canalDlg');
-function closeAll(){$b.style.display='none';$m.style.display='none';$dd.style.display='none';}
+const $sd=document.getElementById('stationDlg'),$rdlg=document.getElementById('railDlg');
+function closeAll(){$b.style.display='none';$m.style.display='none';$sd.style.display='none';}
 
-function openDockBuild(from,to,kind){
+function openStationBuild(from,to,kind){
     S.pending={from,to,kind};
     let tc=Math.round(dd(from.x,from.y,to.x,to.y)*CPX);
-    if(kind==='farm_dock'){
-        document.getElementById('ddTitle').textContent='Feeder Route (Farm → Dock)';
-        document.getElementById('ddLabA').textContent='Farm Ask';
-        document.getElementById('ddA').textContent=from.ask;
-        document.getElementById('ddT').textContent=tc;
-        document.getElementById('ddLabB').textContent='Cargo waits at dock';
-        document.getElementById('ddB').textContent='—';
+    if(kind==='farm_station'){
+        document.getElementById('sdTitle').textContent='Feeder (Farm → Station)';
+        document.getElementById('sdLabA').textContent='Farm Ask';
+        document.getElementById('sdA').textContent=from.ask;
+        document.getElementById('sdT').textContent=tc;
+        document.getElementById('sdLabB').textContent='Cargo waits at station';
+        document.getElementById('sdB').textContent='—';
     }else{
-        document.getElementById('ddTitle').textContent='Delivery Route (Dock → Factory)';
-        document.getElementById('ddLabA').textContent='Factory Wool Bid';
-        document.getElementById('ddA').textContent=to.woolBid;
-        document.getElementById('ddT').textContent=tc;
-        document.getElementById('ddLabB').textContent='Barge leg cost';
-        document.getElementById('ddB').textContent='$0';
+        document.getElementById('sdTitle').textContent='Delivery (Station → Factory)';
+        document.getElementById('sdLabA').textContent='Factory Wool Bid';
+        document.getElementById('sdA').textContent=to.woolBid;
+        document.getElementById('sdT').textContent=tc;
+        document.getElementById('sdLabB').textContent='Train leg cost';
+        document.getElementById('sdB').textContent='$0';
     }
-    $dd.style.display='flex';
+    $sd.style.display='flex';
 }
-document.getElementById('ddCancel').onclick=closeAll;
-document.getElementById('ddBuild').onclick=()=>{
+document.getElementById('sdCancel').onclick=closeAll;
+document.getElementById('sdBuild').onclick=()=>{
     if(!S.pending||!S.pending.kind)return;
     let{from,to,kind}=S.pending;
-    S.canal.dockRoutes.push(new DockRoute(from,to,kind));
+    S.rail.feederRoutes.push(new FeederRoute(from,to,kind));
     closeAll();
 };
-document.getElementById('cOk').onclick=()=>{$cdlg.style.display='none';};
+document.getElementById('rOk').onclick=()=>{$rdlg.style.display='none';};
 
-function chkCanal(){
-    if(S.canal.announced)return;
-    if(S.woolRoutes.length+S.clothRoutes.length<3||S.cash<120)return;
-    S.canal.announced=true;S.canal.unlocked=true;
-    renderBG(); // re-render background: dotted planned line → full waterway
-    world.scrollTo({top:H*0.30,behavior:'smooth'});
-    setTimeout(()=>{$cdlg.style.display='flex';closeAll();},600);
+document.getElementById('btnStation').onclick=()=>{
+    S.placingStation=!S.placingStation;
+    document.getElementById('btnStation').style.outline=S.placingStation?'3px solid #fff':'';
+};
+
+function chkRailroad(){
+    if(S.rail.announced)return;
+    // Count farms that have ever reached 2× their base ask
+    let nd=S.farms.filter(f=>f.ask>=f.bAsk*2).length;
+    if(nd<2)return;
+    S.rail.announced=true;S.rail.unlocked=true;
+    document.getElementById('btnStation').style.display='inline-block';
+    setTimeout(()=>{$rdlg.style.display='flex';closeAll();},400);
 }
 
 function openBuild(from,to,kind){
@@ -973,22 +987,28 @@ function tick(now){
     S.cities.forEach(c=>c.update(dt));
     S.woolRoutes.forEach(r=>r.update(dt));
     S.clothRoutes.forEach(r=>r.update(dt));
-    if(S.canal.unlocked){S.canal.barges.forEach(b=>b.update(dt));S.canal.dockRoutes.forEach(r=>r.update(dt));}
-    chkCanal();
+    if(S.rail.unlocked){
+        S.rail.trackRoutes.forEach(r=>r.update(dt));
+        S.rail.feederRoutes.forEach(r=>r.update(dt));
+    }
+    chkRailroad();
     S.floats.forEach(f=>{f.y-=18*dt;f.life-=dt;});S.floats=S.floats.filter(f=>f.life>0);
     S.smoke.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.sz+=1.5*dt;p.life-=dt;});S.smoke=S.smoke.filter(p=>p.life>0);
     if(S.selRoute&&$m.style.display==='flex'){uiT+=dt;if(uiT>.6){uiT=0;openMgr(S.selRoute);}}else uiT=0;
 
     // DRAW
     if(bgOK)cx.drawImage(bg,0,0);
-    // Draw cities first (behind routes)
     S.cities.forEach(c=>c.draw(cx));
     S.woolRoutes.forEach(r=>r.draw(cx));
     S.clothRoutes.forEach(r=>r.draw(cx));
-    S.canal.dockRoutes.forEach(r=>r.draw(cx));
+    // Railroad: tracks behind stations, feeders on top
+    if(S.rail.unlocked){
+        S.rail.trackRoutes.forEach(r=>r.draw(cx));
+        S.rail.feederRoutes.forEach(r=>r.draw(cx));
+    }
     S.farms.forEach(f=>f.draw(cx));
     S.factories.forEach(f=>f.draw(cx));
-    if(S.canal.unlocked){S.canal.docks.forEach(d=>drawDock(cx,d));S.canal.barges.forEach(b=>b.draw(cx));}
+    if(S.rail.unlocked)S.rail.stations.forEach(s=>drawStation(cx,s));
     for(let p of S.smoke){cx.globalAlpha=Math.max(0,p.life/p.max)*.4;cx.fillStyle='#888';cx.beginPath();cx.arc(p.x,p.y,p.sz,0,Math.PI*2);cx.fill();}
     cx.globalAlpha=1;
     for(let f of S.floats){cx.globalAlpha=Math.max(0,f.life/f.max);cx.font='bold 15px sans-serif';cx.textAlign='center';cx.strokeStyle='#fff';cx.lineWidth=2.5;cx.strokeText(f.t,f.x,f.y);cx.fillStyle=f.col;cx.fillText(f.t,f.x,f.y);}
@@ -997,12 +1017,17 @@ function tick(now){
     if(S.drag&&S.dragFrom){
         let s=S.dragFrom,e=S.mouse;
         cx.beginPath();cx.moveTo(s.x,s.y);cx.lineTo(e.x,e.y);
-        cx.strokeStyle=S.dragType==='cloth'?'rgba(91,109,175,.7)':S.dragType==='dock'?'rgba(74,110,52,.7)':'rgba(130,118,96,.7)';
+        cx.strokeStyle=S.dragType==='cloth'?'rgba(91,109,175,.7)':S.dragType==='station'?'rgba(122,78,42,.8)':'rgba(130,118,96,.7)';
         cx.lineWidth=2;cx.setLineDash([5,5]);cx.stroke();cx.setLineDash([]);
         let cost=Math.round(dd(s.x,s.y,e.x,e.y)*CPX);
         cx.fillStyle='rgba(255,255,255,.85)';cx.beginPath();cx.roundRect(e.x+12,e.y+8,55,18,3);cx.fill();
         cx.fillStyle='#3e3832';cx.font='11px sans-serif';cx.textAlign='left';cx.textBaseline='middle';
         cx.fillText('Cost: $'+cost,e.x+16,e.y+17);
+    }
+    // Station placement cursor
+    if(S.placingStation){
+        cx.strokeStyle='rgba(122,78,42,0.7)';cx.lineWidth=2;cx.setLineDash([4,4]);
+        cx.strokeRect(S.mouse.x-18,S.mouse.y-14,36,28);cx.setLineDash([]);
     }
     requestAnimationFrame(tick);
 }
