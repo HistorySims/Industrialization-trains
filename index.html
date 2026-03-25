@@ -585,18 +585,19 @@ class Train{
         if(this.p<=0){this.p=0;this.dir=1;}
         this.x=mix(r.from.x,r.to.x,this.p);
         this.y=mix(r.from.y,r.to.y,this.p);
-        // At each end: exchange cargo with station
-        let atFrom=this.p<=0.04&&this.dir===1;
-        let atTo=this.p>=0.96&&this.dir===-1;
-        let stn=atFrom?r.from:atTo?r.to:null;
-        if(stn){
-            // pick up
-            while(this.cargo.length<TRAIN_CAP&&stn.cargoQ.length>0)
-                this.cargo.push(stn.cargoQ.shift());
-            // drop if this station has outbound station_factory routes
-            let hasOut=S.rail.feederRoutes.some(fr=>fr.kind==='station_factory'&&fr.from===stn);
-            while(hasOut&&this.cargo.length>0)stn.cargoQ.push(this.cargo.shift());
-        }
+        // Exchange cargo when the train reaches either end
+        let atEnd=(this.p<=0.001&&this.dir===1)||(this.p>=0.999&&this.dir===-1);
+        if(!atEnd)return;
+        let stn=this.p<0.5?r.from:r.to;
+        // Drop first — only if this station has outbound delivery routes
+        let isDest=S.rail.feederRoutes.some(fr=>
+            (fr.kind==='station_factory'||fr.kind==='station_city')&&fr.from===stn);
+        if(isDest) while(this.cargo.length>0) stn.cargoQ.push(this.cargo.shift());
+        // Pick up — only if this station has inbound feeder routes (source role)
+        let isSrc=S.rail.feederRoutes.some(fr=>
+            (fr.kind==='farm_station'||fr.kind==='factory_station')&&fr.to===stn);
+        if(isSrc) while(this.cargo.length<TRAIN_CAP&&stn.cargoQ.length>0)
+            this.cargo.push(stn.cargoQ.shift());
     }
     draw(c){
         c.save();c.translate(this.x,this.y);
@@ -624,7 +625,10 @@ class Train{
     }
 }
 
-// FeederCart handles farm→station and station→factory legs
+// FeederCart: wool legs (farm_station, station_factory)
+//             cloth legs (factory_station, station_city)
+// Cost tracking: loading leg pays and stores accumulated cost;
+// delivery leg earns (bid - accumulated_cost - transport). Train leg is free.
 class FeederCart{
     constructor(route){this.route=route;this.p=0;this.dir=1;this.st='move';this.tmr=0;this.cost=0;this.carrying=false;}
     update(dt){
@@ -633,24 +637,39 @@ class FeederCart{
             this.p+=dt/ttc*this.dir;
             if(this.p>=1){
                 this.p=1;
-                if(r.kind==='farm_station'){
+                if(r.kind==='farm_station'||r.kind==='factory_station'){
+                    // Depositing at station; cost rides in the queue for the train to carry
                     r.to.cargoQ.push(this.cost);this.carrying=false;this.dir=-1;
-                }else{
+                }else if(r.kind==='station_factory'){
                     if(r.to.woolQ<8){
                         r.to.woolQ++;r.to.str+=1;
                         let t2=Math.round(r.dist*CPX),net=r.to.woolBid-this.cost-t2;
                         addCash(net);flt(r.to.x,r.to.y-40,net>=0?'+$'+net:'-$'+Math.abs(net),net>=0?'#4F7942':'#B35B47');
                         smk(r.to.x+8,r.to.y-32);this.carrying=false;this.dir=-1;
                     }else this.st='waitFac';
+                }else if(r.kind==='station_city'){
+                    let city=r.to,t2=Math.round(r.dist*CPX),net=city.clothBid-this.cost-t2;
+                    addCash(net);city.supply++;
+                    flt(city.x,city.y-40,net>=0?'+$'+net:'-$'+Math.abs(net),net>=0?'#4F7942':'#B35B47');
+                    this.carrying=false;this.dir=-1;
                 }
             }else if(this.p<=0){
                 this.p=0;
                 if(r.kind==='farm_station'){this.st='loading';this.tmr=LOAD_TIME;}
-                else this.st='waitStn';
+                else if(r.kind==='factory_station'){this.st='loadFac';this.tmr=LOAD_TIME;}
+                else this.st='waitStn'; // station_factory or station_city
             }
         }else if(this.st==='loading'){
+            // Wool pickup at farm
             this.tmr-=dt;
             if(this.tmr<=0){let f=r.from,t1=Math.round(r.dist*CPX);this.cost=f.ask+t1;addCash(-this.cost);f.str+=1;this.carrying=true;this.dir=1;this.st='move';}
+        }else if(this.st==='loadFac'){
+            // Cloth pickup at factory
+            this.tmr-=dt;
+            if(this.tmr<=0){let fc=r.from,t1=Math.round(r.dist*CPX);
+                if(fc.warehouse>0){fc.warehouse--;this.cost=fc.clothAsk+t1;addCash(-this.cost);this.carrying=true;this.dir=1;this.st='move';}
+                else{this.tmr=LOAD_TIME;} // wait for cloth to be produced
+            }
         }else if(this.st==='waitStn'){
             if(r.from.cargoQ.length>0){this.cost=r.from.cargoQ.shift();this.tmr=LOAD_TIME;this.st='stnLoad';}
         }else if(this.st==='stnLoad'){
@@ -662,10 +681,13 @@ class FeederCart{
     draw(c){
         let x=mix(this.route.from.x,this.route.to.x,this.p),y=mix(this.route.from.y,this.route.to.y,this.p);
         c.save();c.translate(x,y);
-        c.fillStyle='#4a6e34';c.fillRect(-6,-4,12,8);
-        if(this.carrying&&this.st==='move'){c.fillStyle='#EEE';c.beginPath();c.arc(0,-2,3.5,0,Math.PI*2);c.fill();}
+        let isCloth=this.route.kind==='factory_station'||this.route.kind==='station_city';
+        c.fillStyle=isCloth?'#4A5A8A':'#4a6e34';c.fillRect(-6,-4,12,8);
+        if(this.carrying&&this.st==='move'){
+            c.fillStyle=isCloth?'#8090C0':'#EEE';c.beginPath();c.arc(0,-2,3.5,0,Math.PI*2);c.fill();}
         c.fillStyle='#222';c.fillRect(-7,-5.5,3,2);c.fillRect(4,-5.5,3,2);c.fillRect(-7,3.5,3,2);c.fillRect(4,3.5,3,2);
-        if(this.st==='waitFac'){c.fillStyle='#e74c3c';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('⏳',0,-10);}
+        if(this.st==='waitFac'||this.st==='loadFac'&&this.tmr>LOAD_TIME*0.9){
+            c.fillStyle='#e74c3c';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('⏳',0,-10);}
         c.restore();
     }
 }
@@ -836,20 +858,28 @@ window.addEventListener('pointerup',e=>{
             if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='farm_station'&&r.from===S.dragFrom&&r.to===hs);if(!ex)openStationBuild(S.dragFrom,hs,'farm_station');}
         }
     }else if(S.dragType==='cloth'){
+        // Direct cloth route to city, OR via station (factory_station)
         let tc=hitEntity(p,S.cities);
         if(tc&&S.dragFrom){
             let ex=S.clothRoutes.find(r=>r.from===S.dragFrom&&r.to===tc);
             if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tc,'cloth');
+        }else if(S.rail.unlocked&&S.dragFrom){
+            let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
+            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='factory_station'&&r.from===S.dragFrom&&r.to===hs);if(!ex)openStationBuild(S.dragFrom,hs,'factory_station');}
         }
     }else if(S.dragType==='station'){
-        // Station → Station: lay track; Station → Factory: feeder
+        // Station → Station: lay track
+        // Station → Factory: wool delivery feeder
+        // Station → City: cloth delivery feeder
         let hs2=S.rail.stations.find(s=>s!==S.dragFrom&&dd(p.x,p.y,s.x,s.y)<s.r*1.4);
         if(hs2){
             let ex=S.rail.trackRoutes.find(r=>(r.from===S.dragFrom&&r.to===hs2)||(r.from===hs2&&r.to===S.dragFrom));
             if(!ex)S.rail.trackRoutes.push(new TrackRoute(S.dragFrom,hs2));
         }else{
             let tf=hitEntity(p,S.factories);
-            if(tf){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_factory'&&r.from===S.dragFrom&&r.to===tf);if(!ex)openStationBuild(S.dragFrom,tf,'station_factory');}
+            if(tf){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_factory'&&r.from===S.dragFrom&&r.to===tf);if(!ex)openStationBuild(S.dragFrom,tf,'station_factory');return;}
+            let tc=hitEntity(p,S.cities);
+            if(tc){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_city'&&r.from===S.dragFrom&&r.to===tc);if(!ex)openStationBuild(S.dragFrom,tc,'station_city');}
         }
     }
     S.dragFrom=null;S.dragType=null;
@@ -865,20 +895,34 @@ function closeAll(){$b.style.display='none';$m.style.display='none';$sd.style.di
 function openStationBuild(from,to,kind){
     S.pending={from,to,kind};
     let tc=Math.round(dd(from.x,from.y,to.x,to.y)*CPX);
+    const titles={
+        farm_station:'Feeder (Farm → Station)',
+        factory_station:'Feeder (Factory → Station)',
+        station_factory:'Delivery (Station → Factory)',
+        station_city:'Delivery (Station → City)',
+    };
+    document.getElementById('sdTitle').textContent=titles[kind];
+    document.getElementById('sdT').textContent=tc;
     if(kind==='farm_station'){
-        document.getElementById('sdTitle').textContent='Feeder (Farm → Station)';
         document.getElementById('sdLabA').textContent='Farm Ask';
         document.getElementById('sdA').textContent=from.ask;
-        document.getElementById('sdT').textContent=tc;
-        document.getElementById('sdLabB').textContent='Cargo waits at station';
+        document.getElementById('sdLabB').textContent='Wool waits at station';
         document.getElementById('sdB').textContent='—';
-    }else{
-        document.getElementById('sdTitle').textContent='Delivery (Station → Factory)';
+    }else if(kind==='factory_station'){
+        document.getElementById('sdLabA').textContent='Factory Cloth Ask';
+        document.getElementById('sdA').textContent=from.clothAsk;
+        document.getElementById('sdLabB').textContent='Cloth waits at station';
+        document.getElementById('sdB').textContent='—';
+    }else if(kind==='station_factory'){
         document.getElementById('sdLabA').textContent='Factory Wool Bid';
         document.getElementById('sdA').textContent=to.woolBid;
-        document.getElementById('sdT').textContent=tc;
-        document.getElementById('sdLabB').textContent='Train leg cost';
-        document.getElementById('sdB').textContent='$0';
+        document.getElementById('sdLabB').textContent='Train leg';
+        document.getElementById('sdB').textContent='$0 (free)';
+    }else if(kind==='station_city'){
+        document.getElementById('sdLabA').textContent='City Cloth Bid';
+        document.getElementById('sdA').textContent=to.clothBid;
+        document.getElementById('sdLabB').textContent='Train leg';
+        document.getElementById('sdB').textContent='$0 (free)';
     }
     $sd.style.display='flex';
 }
