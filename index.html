@@ -348,7 +348,10 @@ class Factory{
         this.warehouse=0;   // cloth in warehouse (0..WAREHOUSE_MAX)
         this.gate=null;this.gateQ=[];         // wool unloading
         this.clothGate=null;this.clothGateQ=[]; // cloth loading
+        this.totalProcessed=0; // cumulative wool→cloth conversions
     }
+    get tier(){return this.totalProcessed<40?0:this.totalProcessed<100?1:2;}
+    get procTime(){return [2.5,1.7,1.0][this.tier];}
     get woolBid(){
         // Bid drops when warehouse full, rises when empty
         let fullness=this.warehouse/WAREHOUSE_MAX;
@@ -362,11 +365,11 @@ class Factory{
     }
     update(dt){
         if(this.str>0){this.str-=SDECAY*.7*dt;if(this.str<0)this.str=0;}
-        // Process wool → cloth
+        // Process wool → cloth (speed scales with tier)
         if(this.woolQ>0){
             this.pt+=dt;
-            if(this.pt>=PROC_T){
-                this.woolQ--;this.pt=0;
+            if(this.pt>=this.procTime){
+                this.woolQ--;this.pt=0;this.totalProcessed++;
                 if(this.warehouse<WAREHOUSE_MAX){this.warehouse++;smk(this.x+8,this.y-32);}
             }
         }else this.pt=0;
@@ -395,6 +398,8 @@ class Factory{
         }
     }
     draw(c){
+        let tier=this.tier;
+        let bh=14+tier*3; // roof rises with tier
         // Parking lot (left side)
         let nWait=this.gateQ.length;
         if(nWait>0){
@@ -406,12 +411,32 @@ class Factory{
                 c.fillRect(this.x-41,this.y-5.5+i*10,2,2);c.fillStyle='#d4874a';
             }
         }
-        // Main building
-        c.fillStyle='#A84E3A';c.fillRect(this.x-20,this.y-14,40,28);
-        c.fillStyle='#333';c.beginPath();
-        c.moveTo(this.x-22,this.y-14);c.lineTo(this.x,this.y-24);c.lineTo(this.x+22,this.y-14);c.fill();
-        c.fillStyle='#555';c.fillRect(this.x+7,this.y-38,8,20);
+        // Second chimney at tier 2
+        if(tier>=2){c.fillStyle='#3d3d3d';c.fillRect(this.x-12,this.y-bh-18,7,bh+6);}
+        // Main building (grows and darkens with tier)
+        let bCol=['#A84E3A','#923A2E','#762A20'][tier];
+        c.fillStyle=bCol;c.fillRect(this.x-20,this.y-bh,40,bh+14);
+        c.fillStyle='#2a2a2a';c.beginPath();
+        c.moveTo(this.x-22,this.y-bh);c.lineTo(this.x,this.y-bh-10);c.lineTo(this.x+22,this.y-bh);c.fill();
+        // Main chimney
+        c.fillStyle='#555';c.fillRect(this.x+7,this.y-bh-24,8,bh+10);
+        c.fillStyle='#333';c.fillRect(this.x+6,this.y-bh-26,10,3); // chimney cap
         c.fillStyle='#E8C860';c.fillRect(this.x-14,this.y-8,8,8);c.fillRect(this.x+4,this.y-8,8,8);
+        // Tier badge (Mk.II / Mk.III only)
+        if(tier>0){
+            let badge=tier===1?'Mk.II':'Mk.III';
+            c.font='bold 7px sans-serif';
+            let bw=c.measureText(badge).width+6;
+            c.fillStyle='rgba(255,215,170,0.92)';c.beginPath();c.roundRect(this.x-bw/2,this.y-bh-8,bw,10,2);c.fill();
+            c.fillStyle='#6a2a18';c.textAlign='center';c.textBaseline='middle';
+            c.fillText(badge,this.x,this.y-bh-3);
+        }
+        // Processing progress bar
+        if(this.woolQ>0){
+            let pct=Math.min(1,this.pt/this.procTime);
+            c.fillStyle='rgba(0,0,0,0.25)';c.fillRect(this.x-17,this.y+6,34,3);
+            c.fillStyle='#f39c12';c.fillRect(this.x-17,this.y+6,Math.round(pct*34),3);
+        }
         // Warehouse (right side of factory)
         c.fillStyle='#8B7355';c.fillRect(this.x+24,this.y-10,28,22);
         c.fillStyle='#6B5540';c.fillRect(this.x+24,this.y-14,28,4);
@@ -429,12 +454,12 @@ class Factory{
             c.fillStyle='#f39c12';c.font='bold 8px sans-serif';
             c.fillText('⚙'+this.woolQ,this.x,this.y+18);
         }
-        // Wool bid price (left)
+        // Wool bid price (left, positioned above building)
         let wb='$'+this.woolBid;c.font='bold 11px sans-serif';let ww=c.measureText(wb).width+8;
-        c.fillStyle='rgba(255,245,235,.92)';c.beginPath();c.roundRect(this.x-22-ww,this.y-36,ww,16,3);c.fill();
+        c.fillStyle='rgba(255,245,235,.92)';c.beginPath();c.roundRect(this.x-22-ww,this.y-bh-22,ww,16,3);c.fill();
         c.strokeStyle='#B35B47';c.lineWidth=1;c.stroke();
         c.fillStyle='#B35B47';c.textAlign='center';c.textBaseline='middle';
-        c.fillText(wb,this.x-22-ww/2,this.y-28);
+        c.fillText(wb,this.x-22-ww/2,this.y-bh-14);
         // Cloth ask price (right, above warehouse)
         let ca='$'+this.clothAsk;let cw=c.measureText(ca).width+8;
         c.fillStyle='rgba(220,225,245,.92)';c.beginPath();c.roundRect(this.x+24,this.y-28,cw,14,3);c.fill();
@@ -706,16 +731,16 @@ class FeederCart{
         }else if(this.st==='loading'){
             // Wool pickup at farm
             this.tmr-=dt;
-            if(this.tmr<=0){let f=r.from,t1=Math.round(r.dist*CPX);this.cost=f.ask+t1;addCash(-this.cost);f.str+=1;this.carrying=true;this.dir=1;this.st='move';}
+            if(this.tmr<=0){let f=r.from,t1=Math.round(r.dist*CPX);this.cost=f.ask+t1;r.lastCost=this.cost;addCash(-this.cost);f.str+=1;this.carrying=true;this.dir=1;this.st='move';}
         }else if(this.st==='loadFac'){
             // Cloth pickup at factory
             this.tmr-=dt;
             if(this.tmr<=0){let fc=r.from,t1=Math.round(r.dist*CPX);
-                if(fc.warehouse>0){fc.warehouse--;this.cost=fc.clothAsk+t1;addCash(-this.cost);this.carrying=true;this.dir=1;this.st='move';}
+                if(fc.warehouse>0){fc.warehouse--;this.cost=fc.clothAsk+t1;r.lastCost=this.cost;addCash(-this.cost);this.carrying=true;this.dir=1;this.st='move';}
                 else{this.tmr=LOAD_TIME;} // wait for cloth to be produced
             }
         }else if(this.st==='waitStn'){
-            if(r.from.cargoQ.length>0){this.cost=r.from.cargoQ.shift();this.tmr=LOAD_TIME;this.st='stnLoad';}
+            if(r.from.cargoQ.length>0){this.cost=r.from.cargoQ.shift();r.lastCost=this.cost;this.tmr=LOAD_TIME;this.st='stnLoad';}
         }else if(this.st==='stnLoad'){
             this.tmr-=dt;if(this.tmr<=0){this.carrying=true;this.dir=1;this.st='move';}
         }else if(this.st==='waitFac'){
@@ -737,11 +762,15 @@ class FeederCart{
 }
 
 class FeederRoute{
-    constructor(from,to,kind){this.from=from;this.to=to;this.kind=kind;this.dist=dd(from.x,from.y,to.x,to.y);this.carts=[new FeederCart(this)];}
+    constructor(from,to,kind){this.from=from;this.to=to;this.kind=kind;this.dist=dd(from.x,from.y,to.x,to.y);this.carts=[new FeederCart(this)];this.lastCost=0;}
     update(dt){this.carts.forEach(c=>c.update(dt));}
     draw(c){
+        let sel=this===S.selRoute;
+        let isCloth=this.kind==='factory_station'||this.kind==='station_city';
         c.beginPath();c.moveTo(this.from.x,this.from.y);c.lineTo(this.to.x,this.to.y);
-        c.strokeStyle='rgba(122,78,42,.5)';c.lineWidth=2;c.setLineDash([4,6]);c.stroke();c.setLineDash([]);
+        if(sel){c.strokeStyle='#FFD700';c.lineWidth=3;c.setLineDash([]);}
+        else{c.strokeStyle=isCloth?'rgba(91,109,175,.5)':'rgba(122,78,42,.5)';c.lineWidth=2;c.setLineDash([4,6]);}
+        c.stroke();c.setLineDash([]);
         this.carts.forEach(ct=>ct.draw(c));
     }
 }
@@ -882,7 +911,7 @@ world.addEventListener('pointerdown',e=>{
     let hfac=hitEntity(p,S.factories);
     if(hfac){startDrag(e,hfac,'cloth');return;}
     // Click route?
-    let allRoutes=[...S.woolRoutes,...S.clothRoutes];
+    let allRoutes=[...S.woolRoutes,...S.clothRoutes,...(S.rail.unlocked?S.rail.feederRoutes:[])];
     let best=null,bd=18;
     for(let r of allRoutes){let d2=Math.sqrt(segD2(p,r.from,r.to));if(d2<bd){bd=d2;best=r;}}
     if(best){S.selRoute=best;openMgr(best);return;}
@@ -1024,13 +1053,34 @@ function openBuild(from,to,kind){
     btn.className=kind==='cloth'?'cloth':'go';
     $b.style.display='flex';
 }
-function openMgr(r){
+const FEEDER_KINDS=new Set(['farm_station','station_factory','factory_station','station_city']);
+function feederNet(r){
     let tc=Math.round(r.dist*CPX);
-    let askP,bidP;
-    if(r.kind==='wool'){askP=r.from.ask;bidP=r.to.woolBid;}
-    else{askP=r.from.clothAsk;bidP=r.to.clothBid;}
-    let net=bidP-askP-tc;
-    document.getElementById('mType').innerHTML=r.kind==='wool'?'<span class="tag wool">Wool</span>':'<span class="tag cloth">Cloth</span>';
+    if(r.kind==='farm_station') return -(r.from.ask+tc);
+    if(r.kind==='factory_station') return -(r.from.clothAsk+tc);
+    if(r.kind==='station_factory') return r.to.woolBid-(r.lastCost||0)-tc;
+    if(r.kind==='station_city')    return r.to.clothBid-(r.lastCost||0)-tc;
+    return 0;
+}
+const FEEDER_LABELS={
+    farm_station:'<span class="tag wool">Farm→Stn</span>',
+    station_factory:'<span class="tag wool">Stn→Factory</span>',
+    factory_station:'<span class="tag cloth">Factory→Stn</span>',
+    station_city:'<span class="tag cloth">Stn→City</span>',
+};
+function openMgr(r){
+    let net,typeHTML;
+    if(FEEDER_KINDS.has(r.kind)){
+        net=feederNet(r);
+        typeHTML=FEEDER_LABELS[r.kind];
+    }else{
+        let tc=Math.round(r.dist*CPX);
+        let askP=r.kind==='wool'?r.from.ask:r.from.clothAsk;
+        let bidP=r.kind==='wool'?r.to.woolBid:r.to.clothBid;
+        net=bidP-askP-tc;
+        typeHTML=r.kind==='wool'?'<span class="tag wool">Wool</span>':'<span class="tag cloth">Cloth</span>';
+    }
+    document.getElementById('mType').innerHTML=typeHTML;
     document.getElementById('mc').textContent=r.carts.length;
     let $p2=document.getElementById('mp');
     $p2.textContent=(net>=0?'+$':'\u2212$')+Math.abs(net);$p2.className=net>=0?'pos':'neg';
@@ -1047,11 +1097,19 @@ document.getElementById('bBuild').onclick=()=>{
 };
 document.getElementById('mClose').onclick=()=>{closeAll();S.selRoute=null;};
 document.getElementById('mBuy').onclick=()=>{
-    let r=S.selRoute;if(r&&S.cash>=CART_$){addCash(-CART_$);r.carts.push(new Cart(r));openMgr(r);}
+    let r=S.selRoute;if(!r||S.cash<CART_$)return;
+    addCash(-CART_$);
+    r.carts.push(FEEDER_KINDS.has(r.kind)?new FeederCart(r):new Cart(r));
+    openMgr(r);
 };
 document.getElementById('mDel').onclick=()=>{
     if(!S.selRoute)return;
     let r=S.selRoute;
+    if(FEEDER_KINDS.has(r.kind)){
+        r.carts=[];  // stop all carts on this route
+        S.rail.feederRoutes=S.rail.feederRoutes.filter(x=>x!==r);
+        S.selRoute=null;closeAll();return;
+    }
     // Clean carts from queues
     for(let c of r.carts){
         if(r.kind==='wool'){
