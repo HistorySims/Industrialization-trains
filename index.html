@@ -265,6 +265,26 @@ function renderBG(){
      bx.beginPath();bx.moveTo(xSrc,ySrc);bx.quadraticCurveTo(xMid,yMid,xMouth,yMouth);
      bx.strokeStyle='rgba(140,200,230,0.45)';bx.lineWidth=2.5;bx.stroke();}
     bx.restore();
+    // Sandy beach fringe — thin warm strip just inside the coastline
+    tracePoly(bx);bx.lineWidth=9;bx.strokeStyle='rgba(210,192,148,0.45)';bx.stroke();
+    tracePoly(bx);bx.lineWidth=4;bx.strokeStyle='rgba(225,208,165,0.35)';bx.stroke();
+    // Highland peaks — small rocky triangles in northern fifth of island
+    {let seedP=77;function srp(){seedP=(seedP*16807)%2147483647;return(seedP-1)/2147483646;}
+     for(let i=0;i<18;i++){
+        let t=srp()*0.28+0.03;
+        let hw=islandHW(t)*W,cxP=islandCX(t);
+        let yP=H*0.015+H*0.968*t;
+        let px=cxP+(srp()*2-1)*hw*0.7;
+        let ph=(14+srp()*22);
+        let pw=ph*(0.8+srp()*0.7);
+        // rocky peak: dark triangle with light snow cap
+        bx.beginPath();bx.moveTo(px,yP-ph);bx.lineTo(px-pw/2,yP);bx.lineTo(px+pw/2,yP);bx.closePath();
+        bx.fillStyle=`rgba(${88+~~(srp()*30)},${82+~~(srp()*20)},${75+~~(srp()*20)},0.38)`;bx.fill();
+        // snow cap
+        bx.beginPath();bx.moveTo(px,yP-ph);bx.lineTo(px-pw*0.22,yP-ph*0.55);bx.lineTo(px+pw*0.22,yP-ph*0.55);bx.closePath();
+        bx.fillStyle='rgba(240,240,238,0.52)';bx.fill();
+     }
+    }
     bgOK=true;
 }
 
@@ -285,6 +305,13 @@ class Farm{
         if(!this.gate&&this.gateQ.length>0){let n=this.gateQ.shift();n.tmr=LOAD_TIME;n.st='loading';this.gate=n;}
     }
     draw(c){
+        // Small barn (left side)
+        c.fillStyle='#8B4A2A';c.fillRect(this.x-32,this.y-5,14,12);
+        c.fillStyle='#5A2A10';c.beginPath();c.moveTo(this.x-33,this.y-5);c.lineTo(this.x-25,this.y-12);c.lineTo(this.x-17,this.y-5);c.fill();
+        c.fillStyle='#6A3818';c.fillRect(this.x-29,this.y-1,5,8); // barn door
+        // Haystack beside barn
+        c.fillStyle='#C8A85A';c.beginPath();c.ellipse(this.x-37,this.y+6,5,4,0,0,Math.PI*2);c.fill();
+        c.fillStyle='#B09040';c.beginPath();c.ellipse(this.x-37,this.y+4,4,3,0,0,Math.PI*2);c.fill();
         // Sheep pen fence
         c.strokeStyle='rgba(120,100,70,.5)';c.lineWidth=1.5;
         c.strokeRect(this.x-18,this.y+7,36,12);
@@ -297,7 +324,8 @@ class Farm{
         c.fillStyle='#F0EDE6';c.fillRect(this.x-11,this.y-7,22,14);
         c.fillStyle='#7A5A3A';c.beginPath();
         c.moveTo(this.x-13,this.y-7);c.lineTo(this.x,this.y-19);c.lineTo(this.x+13,this.y-7);c.fill();
-        c.fillStyle='#5A3A2A';c.fillRect(this.x-3,this.y+1,6,6);
+        c.fillStyle='#5A3A2A';c.fillRect(this.x-3,this.y+1,6,6); // door
+        c.fillStyle='#A8C8E8';c.fillRect(this.x+3,this.y-5,4,4); // window
         // Queue dots
         if(this.gateQ.length>0){c.fillStyle='#f39c12';
             for(let i=0;i<Math.min(this.gateQ.length,6);i++){c.beginPath();c.arc(this.x-20-i*7,this.y,3,0,Math.PI*2);c.fill();}}
@@ -435,31 +463,47 @@ class City{
     }
     draw(c){
         let s=this.sz==='large'?1:.75;
-        // Buildings cluster
-        c.fillStyle='#6B6058';
-        c.fillRect(this.x-10*s,this.y-6*s,8*s,12*s);
-        c.fillRect(this.x+0*s,this.y-10*s,9*s,16*s);
-        c.fillRect(this.x+11*s,this.y-5*s,7*s,11*s);
-        // Roofs
-        c.fillStyle='#4A4038';
-        c.fillRect(this.x-11*s,this.y-8*s,10*s,2*s);
-        c.fillRect(this.x-1*s,this.y-12*s,11*s,2*s);
-        c.fillRect(this.x+10*s,this.y-7*s,9*s,2*s);
-        if(this.sz==='large'){
-            c.fillStyle='#555';c.fillRect(this.x+3,this.y-18*s,3,6*s);
-            c.beginPath();c.moveTo(this.x+2,this.y-18*s);
-            c.lineTo(this.x+4.5,this.y-23*s);c.lineTo(this.x+7,this.y-18*s);c.fill();
+        let lrg=this.sz==='large';
+        // Shadow
+        c.fillStyle='rgba(0,0,0,0.10)';
+        c.fillRect(this.x-15*s+2,this.y-12*s+3,30*s,14*s);
+        // Left building
+        c.fillStyle='#78706A';c.fillRect(this.x-14*s,this.y-6*s,9*s,12*s);
+        c.fillStyle='#5A504A';c.fillRect(this.x-15*s,this.y-8*s,11*s,2*s); // roof
+        c.fillStyle='#4a3a2e';c.fillRect(this.x-12*s,this.y-1*s,3*s,5*s); // door
+        // Centre building (tallest)
+        c.fillStyle='#6B6258';c.fillRect(this.x-2*s,this.y-12*s,10*s,18*s);
+        c.fillStyle='#4E453E';c.fillRect(this.x-3*s,this.y-14*s,12*s,2*s); // roof
+        c.fillStyle='#8B9DBB';c.fillRect(this.x,this.y-9*s,2*s,3*s); // window
+        c.fillRect(this.x+4*s,this.y-9*s,2*s,3*s);
+        // Right building
+        c.fillStyle='#716860';c.fillRect(this.x+10*s,this.y-5*s,8*s,11*s);
+        c.fillStyle='#564D47';c.fillRect(this.x+9*s,this.y-7*s,10*s,2*s); // roof
+        if(lrg){
+            // Church steeple — left of cluster
+            c.fillStyle='#5A5250';c.fillRect(this.x-28,this.y-10,8,16);
+            c.fillStyle='#484040';c.fillRect(this.x-30,this.y-12,12,3); // eave
+            // Steeple tower
+            c.fillStyle='#484040';c.fillRect(this.x-27,this.y-21,6,10);
+            // Spire
+            c.fillStyle='#3A3030';
+            c.beginPath();c.moveTo(this.x-24,this.y-30);
+            c.lineTo(this.x-28.5,this.y-21);c.lineTo(this.x-19.5,this.y-21);c.closePath();c.fill();
+            // Cross
+            c.strokeStyle='rgba(255,255,255,0.6)';c.lineWidth=1.2;
+            c.beginPath();c.moveTo(this.x-24,this.y-28);c.lineTo(this.x-24,this.y-23);c.stroke();
+            c.beginPath();c.moveTo(this.x-26.5,this.y-26);c.lineTo(this.x-21.5,this.y-26);c.stroke();
         }
-        // Name
-        c.font=`${this.sz==='large'?'bold 10px':'9px'} sans-serif`;
+        // Name badge
+        c.font=`${lrg?'bold 10px':'9px'} sans-serif`;
         c.fillStyle='rgba(50,42,35,.75)';c.textAlign='center';c.textBaseline='top';
-        c.fillText(this.name,this.x+2,this.y+8*s);
+        c.fillText(this.name,this.x+(lrg?-4:2),this.y+8*s);
         // Cloth bid price
         let t='$'+this.clothBid;c.font='bold 11px sans-serif';let tw=c.measureText(t).width+8;
-        c.fillStyle='rgba(220,225,245,.92)';c.beginPath();c.roundRect(this.x-tw/2,this.y-28*s-16,tw,16,3);c.fill();
+        c.fillStyle='rgba(220,225,245,.92)';c.beginPath();c.roundRect(this.x-tw/2,this.y-(lrg?42:28*s)-16,tw,16,3);c.fill();
         c.strokeStyle='#5B6DAF';c.lineWidth=1;c.stroke();
         c.fillStyle='#5B6DAF';c.textAlign='center';c.textBaseline='middle';
-        c.fillText(t,this.x,this.y-28*s-8);
+        c.fillText(t,this.x,this.y-(lrg?42:28*s)-8);
     }
 }
 
@@ -725,19 +769,30 @@ class TrackRoute{
 }
 
 function drawStation(c,s){
-    let sel=S.placingStation;
-    // Platform
-    c.fillStyle='#4a3820';c.fillRect(s.x-18,s.y-10,36,20);
-    c.fillStyle='#7a6040';c.fillRect(s.x-16,s.y-8,32,16);
-    // Roof canopy
-    c.fillStyle='#2a1e10';c.fillRect(s.x-18,s.y-14,36,5);
-    // Column supports
-    c.fillStyle='#3a2a18';c.fillRect(s.x-16,s.y-14,3,18);c.fillRect(s.x+13,s.y-14,3,18);
-    // Label
-    c.fillStyle='#fff';c.font='bold 11px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('🚂',s.x,s.y+1);
+    // Shadow
+    c.fillStyle='rgba(0,0,0,0.18)';c.fillRect(s.x-19,s.y-8,38,22);
+    // Stone platform base
+    c.fillStyle='#58503e';c.fillRect(s.x-18,s.y-10,36,20);
+    c.fillStyle='#7a6e58';c.fillRect(s.x-16,s.y-8,32,16);
+    // Platform edge highlight
+    c.fillStyle='#9a8e78';c.fillRect(s.x-16,s.y-8,32,2);
+    // Canopy roof (wider overhang)
+    c.fillStyle='#2e2218';c.fillRect(s.x-20,s.y-16,40,5);
+    c.fillStyle='#1e1610';c.fillRect(s.x-20,s.y-17,40,2);
+    // Column supports (3 columns)
+    c.fillStyle='#3e2e1a';
+    c.fillRect(s.x-17,s.y-16,3,20);
+    c.fillRect(s.x-2,s.y-16,3,20);
+    c.fillRect(s.x+14,s.y-16,3,20);
+    // Waiting area bench
+    c.fillStyle='#5a4530';c.fillRect(s.x-12,s.y+4,12,3);c.fillRect(s.x-12,s.y+3,2,4);c.fillRect(s.x-2,s.y+3,2,4);
+    // Station name board
+    c.fillStyle='#d4b896';c.fillRect(s.x-10,s.y-14,20,7);
+    c.fillStyle='#2a1e10';c.font='bold 5px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('STN',s.x,s.y-10.5);
+    // Cargo indicator
     if(s.cargoQ.length>0){
-        c.fillStyle='#f39c12';c.beginPath();c.arc(s.x+20,s.y-14,9,0,Math.PI*2);c.fill();
-        c.fillStyle='#fff';c.font='bold 9px sans-serif';c.fillText(s.cargoQ.length,s.x+20,s.y-14);
+        c.fillStyle='#f39c12';c.beginPath();c.arc(s.x+22,s.y-16,9,0,Math.PI*2);c.fill();
+        c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(s.cargoQ.length,s.x+22,s.y-16);
     }
 }
 
