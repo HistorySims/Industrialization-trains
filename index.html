@@ -102,7 +102,7 @@ let bgOK=false, islandPoly=[];
 
 const S={
     cash:50,t:0,day:1,done:false,
-    farms:[],factories:[],cities:[],
+    farms:[],factories:[],cities:[],ports:[],
     woolRoutes:[],clothRoutes:[],
     floats:[],smoke:[],
     drag:false,dragFrom:null,dragType:null,mouse:{x:0,y:0},
@@ -476,17 +476,19 @@ class City{
         this.type='city';this.x=x;this.y=y;this.name=name;this.sz=sz;
         this.r=28;
         this.baseBid=14+~~(Math.random()*4); // cloth demand price
-        this.supply=0; // cloth received recently
-        this.supplyDecay=0;
+        this.supply=0;       // target supply level (incremented on delivery)
+        this.smoothSupply=0; // smoothed level used for price (lags behind supply)
     }
     get clothBid(){
-        let adj=Math.max(0,Math.round(this.supply*1.5));
+        // Use smoothed supply so price shifts gradually, not instantly
+        let adj=Math.max(0,Math.round(this.smoothSupply*1.5));
         return clamp(this.baseBid-adj,6,22);
     }
     update(dt){
-        // Supply decays — city always wants more cloth
-        this.supplyDecay+=dt;
-        if(this.supplyDecay>3){this.supplyDecay=0;if(this.supply>0)this.supply--;}
+        // Supply dissipates slowly (1 unit ≈ 15s to decay fully)
+        if(this.supply>0) this.supply=Math.max(0,this.supply-0.067*dt);
+        // Price smoothly tracks supply with a lag (~8s to fully respond)
+        this.smoothSupply+=( this.supply-this.smoothSupply)*0.12*dt;
     }
     draw(c){
         let s=this.sz==='large'?1:.75;
@@ -535,6 +537,121 @@ class City{
 }
 
 // ═══════════════════════════════════════
+// PORTS & BOATS
+// ═══════════════════════════════════════
+class Boat{
+    constructor(port){
+        this.port=port;
+        this.side=port.side;
+        this.x=this.side==='west'?-90:W+90;
+        this.y=port.y+(Math.random()*14-7);
+        this.dockX=this.side==='west'?port.x-52:port.x+52;
+        this.speed=65+Math.random()*25;
+        this.st='arriving';
+        this.loadTmr=0;
+        this.hasCargo=false;
+        this.done=false;
+    }
+    update(dt){
+        if(this.st==='arriving'){
+            let dx=this.dockX-this.x,step=this.speed*dt;
+            if(Math.abs(dx)<=step){
+                this.x=this.dockX;
+                if(this.port.clothQ>0){this.port.clothQ--;this.hasCargo=true;}
+                this.loadTmr=3.5;this.st='loading';
+            }else this.x+=Math.sign(dx)*step;
+        }else if(this.st==='loading'){
+            this.loadTmr-=dt;
+            if(this.loadTmr<=0) this.st='departing';
+        }else{
+            let targetX=this.side==='west'?-120:W+120,step=this.speed*dt;
+            let dx=targetX-this.x;
+            if(Math.abs(dx)<=step) this.done=true;
+            else this.x+=Math.sign(dx)*step;
+        }
+    }
+    draw(c){
+        c.save();c.translate(this.x,this.y);
+        // Boats on the west side face right (into land); east face left
+        let facingRight=(this.side==='west')!==(this.st==='departing');
+        if(!facingRight)c.scale(-1,1);
+        // Hull
+        c.fillStyle='#8B5E3A';
+        c.beginPath();c.moveTo(-22,2);c.lineTo(22,2);c.lineTo(18,10);c.lineTo(-14,10);c.closePath();c.fill();
+        c.fillStyle='#6B4228';c.fillRect(-22,0,44,3); // gunwale
+        // Mast
+        c.fillStyle='#4A2E18';c.fillRect(-1.5,-22,3,22);
+        // Sail
+        c.fillStyle='rgba(242,232,210,.92)';
+        c.beginPath();c.moveTo(0,-20);c.lineTo(16,-6);c.lineTo(0,2);c.closePath();c.fill();
+        c.strokeStyle='rgba(140,110,70,.45)';c.lineWidth=0.8;c.stroke();
+        // Cargo crate when loaded
+        if(this.hasCargo){c.fillStyle='#5B6DAF';c.fillRect(-8,-3,10,6);}
+        c.restore();
+    }
+}
+
+class Port{
+    constructor(x,y,side){
+        this.type='port';this.x=x;this.y=y;this.side=side;this.r=30;
+        this.baseBid=10+~~(Math.random()*5); // $10–$14, no demand link
+        this.priceTimer=0;
+        this.priceInterval=28+Math.random()*24; // drift every 28–52s
+        this.clothQ=0;   // units waiting to be shipped
+        this.boatTmr=10;
+        this.boats=[];
+    }
+    get clothBid(){return this.baseBid;}
+    update(dt){
+        // Price drifts slowly ±1 within $10–$14
+        this.priceTimer+=dt;
+        if(this.priceTimer>=this.priceInterval){
+            this.priceTimer=0;this.priceInterval=28+Math.random()*24;
+            this.baseBid=clamp(this.baseBid+(Math.random()<.5?1:-1),10,14);
+        }
+        // Spawn a boat when there's cargo and fewer than 2 active
+        this.boatTmr-=dt;
+        if(this.boatTmr<=0&&this.clothQ>0&&this.boats.length<2){
+            this.boatTmr=14+Math.random()*8;
+            this.boats.push(new Boat(this));
+        }
+        this.boats.forEach(b=>b.update(dt));
+        this.boats=this.boats.filter(b=>!b.done);
+    }
+    draw(c){
+        let d=this.side==='west'?-1:1; // direction toward water
+        // Pier posts
+        c.fillStyle='#3A2810';
+        for(let i=0;i<3;i++) c.fillRect(this.x+d*(10+i*14),this.y-9,3,18);
+        // Pier deck
+        c.fillStyle='#6B4A2A';c.fillRect(this.x+d*8,this.y-5,d*36,10);
+        c.fillStyle='#5A3A18';c.fillRect(this.x+d*40,this.y-7,d*6,14); // dock end
+        // Warehouse building on land side
+        c.fillStyle='#8A7858';c.fillRect(this.x-d*22,this.y-12,20,22);
+        c.fillStyle='#6A5838';
+        c.beginPath();c.moveTo(this.x-d*24,this.y-12);c.lineTo(this.x-d*12,this.y-22);c.lineTo(this.x-d*2,this.y-12);c.fill();
+        // Warehouse door
+        c.fillStyle='#4A3820';c.fillRect(this.x-d*17,this.y-4,6,10);
+        // Bollard on pier
+        c.fillStyle='#555';c.beginPath();c.arc(this.x+d*14,this.y+6,3,0,Math.PI*2);c.fill();
+        // Cloth waiting indicator
+        if(this.clothQ>0){
+            c.fillStyle='#5B6DAF';c.beginPath();c.arc(this.x+d*6,this.y-18,9,0,Math.PI*2);c.fill();
+            c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';
+            c.fillText(this.clothQ,this.x+d*6,this.y-18);
+        }
+        // Price badge above
+        let t='$'+this.baseBid;c.font='bold 11px sans-serif';let tw=c.measureText(t).width+8;
+        c.fillStyle='rgba(210,230,245,.94)';c.beginPath();c.roundRect(this.x-tw/2,this.y-38,tw,16,3);c.fill();
+        c.strokeStyle='#1A5A8A';c.lineWidth=1;c.stroke();
+        c.fillStyle='#1A4A7A';c.textAlign='center';c.textBaseline='middle';
+        c.fillText(t,this.x,this.y-30);
+        // Boats
+        this.boats.forEach(b=>b.draw(c));
+    }
+}
+
+// ═══════════════════════════════════════
 // CARTS — work for both wool and cloth
 // ═══════════════════════════════════════
 class Cart{
@@ -569,11 +686,19 @@ class Cart{
         }else if(this.st==='waitDeliver'){
             this.deliverTmr-=dt;
             if(this.deliverTmr<=0){
-                let city=this.route.to;
-                let net=city.clothBid-this.cost-Math.round(this.route.dist*CPX);
-                addCash(net);
-                city.supply++;
-                flt(city.x,city.y-40,net>=0?'+$'+net:'-$'+Math.abs(net),net>=0?'#4F7942':'#B35B47');
+                let dest=this.route.to;
+                if(dest.type==='port'){
+                    // Deposit at port; boat earns on departure
+                    let net=dest.clothBid-this.cost-Math.round(this.route.dist*CPX);
+                    addCash(net);
+                    dest.clothQ++;
+                    flt(dest.x,dest.y-40,net>=0?'+$'+net:'\u2212$'+Math.abs(net),net>=0?'#4F7942':'#B35B47');
+                }else{
+                    let net=dest.clothBid-this.cost-Math.round(this.route.dist*CPX);
+                    addCash(net);
+                    dest.supply++;
+                    flt(dest.x,dest.y-40,net>=0?'+$'+net:'\u2212$'+Math.abs(net),net>=0?'#4F7942':'#B35B47');
+                }
                 this.dir=-1;this.st='move';
             }
         }
@@ -880,6 +1005,11 @@ function initWorld(){
     for(let i=0;i<3;i++){let p=place(H*.70,H*.88,.10,120);if(p)S.factories.push(new Factory(p.x,p.y));}
     // 14 farms
     for(let i=0;i<NFARMS;i++){let p=place(H*.04,H*.78,.07);if(p)S.farms.push(new Farm(p.x,p.y,p.y<H*.5));}
+    // 2 ports on west and east coasts, within the middle third (t≈0.45)
+    {let pt=0.45,py=H*0.015+H*0.968*pt;
+     let phw=islandHW(pt)*W,pcx=islandCX(pt);
+     S.ports.push(new Port(pcx-phw,py,'west'));
+     S.ports.push(new Port(pcx+phw,py,'east'));}
 
     // Start scrolled to bottom-center
     setTimeout(()=>world.scrollTo(W/2-window.innerWidth/2,H),120);
@@ -952,7 +1082,7 @@ window.addEventListener('pointerup',e=>{
         }
     }else if(S.dragType==='cloth'){
         // Direct cloth route to city, OR via station (factory_station)
-        let tc=hitEntity(p,S.cities);
+        let tc=hitEntity(p,S.cities)||hitEntity(p,S.ports);
         if(tc&&S.dragFrom){
             let ex=S.clothRoutes.find(r=>r.from===S.dragFrom&&r.to===tc);
             if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tc,'cloth');
@@ -1052,7 +1182,7 @@ function openBuild(from,to,kind){
     let net=bidP-askP-tc;
     document.getElementById('bTitle').textContent=kind==='wool'?'New Wool Route':'New Cloth Route';
     document.getElementById('bFromLabel').textContent=kind==='wool'?'Farm Ask':'Cloth Cost';
-    document.getElementById('bToLabel').textContent=kind==='wool'?'Factory Bid':'City Bid';
+    document.getElementById('bToLabel').textContent=kind==='wool'?'Factory Bid':to.type==='port'?'Port Bid':'City Bid';
     document.getElementById('ba').textContent=askP;
     document.getElementById('bt').textContent=tc;
     document.getElementById('bb').textContent=bidP;
@@ -1158,6 +1288,7 @@ function tick(now){
     S.farms.forEach(f=>f.update(dt));
     S.factories.forEach(f=>f.update(dt));
     S.cities.forEach(c=>c.update(dt));
+    S.ports.forEach(p=>p.update(dt));
     S.woolRoutes.forEach(r=>r.update(dt));
     S.clothRoutes.forEach(r=>r.update(dt));
     if(S.rail.unlocked){
@@ -1171,6 +1302,7 @@ function tick(now){
 
     // DRAW
     if(bgOK)cx.drawImage(bg,0,0);
+    S.ports.forEach(p=>p.draw(cx));
     S.cities.forEach(c=>c.draw(cx));
     S.woolRoutes.forEach(r=>r.draw(cx));
     S.clothRoutes.forEach(r=>r.draw(cx));
