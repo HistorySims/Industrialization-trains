@@ -52,7 +52,8 @@ button:disabled{opacity:.4;cursor:default}
 <h2>Route</h2>
 <div class="row"><span>Type</span><span id="mType"></span></div>
 <div class="row"><span>Carts</span><span id="mc"></span></div>
-<div class="row"><span>Profit / trip</span><span id="mp"></span></div>
+<div class="row"><span id="mProfitLabel">Profit / trip</span><span id="mp"></span></div>
+<div id="mDesc" style="font-size:.82rem;color:#666;font-style:italic;margin:0 0 4px"></div>
 <div class="btns"><button id="mBuy" class="go">Buy Cart ($20)</button><button id="mDel" class="rm">Delete</button></div>
 <button id="mClose" style="margin-top:6px;width:100%">Close</button>
 </div>
@@ -77,6 +78,12 @@ button:disabled{opacity:.4;cursor:default}
 <div class="row"><span>Transport</span><span>$<span id="sdT"></span></span></div>
 <div class="row"><span id="sdLabB">Info</span><span id="sdB"></span></div>
 <div class="btns"><button id="sdCancel">Cancel</button><button id="sdBuild" class="go">Build</button></div>
+</div>
+
+<div id="stnManifest" class="panel modal">
+<h2 id="smTitle">Station Cargo</h2>
+<div id="smList" style="text-align:left;font-size:.9rem;line-height:1.8;min-height:24px;max-height:160px;overflow-y:auto"></div>
+<button id="smClose" style="margin-top:8px;width:100%">Close</button>
 </div>
 
 <script>
@@ -842,7 +849,7 @@ class FeederCart{
                 this.p=1;
                 if(r.kind==='farm_station'||r.kind==='factory_station'){
                     // Depositing at station; cost rides in the queue for the train to carry
-                    r.to.cargoQ.push(this.cost);this.carrying=false;this.dir=-1;
+                    r.to.cargoQ.push({type:r.kind==='farm_station'?'wool':'cloth',cost:this.cost});this.carrying=false;this.dir=-1;
                 }else if(r.kind==='station_factory'){
                     if(r.to.woolQ<8){
                         r.to.woolQ++;r.to.str+=1;
@@ -865,16 +872,18 @@ class FeederCart{
         }else if(this.st==='loading'){
             // Wool pickup at farm
             this.tmr-=dt;
-            if(this.tmr<=0){let f=r.from,t1=Math.round(r.dist*CPX);this.cost=f.ask+t1;r.lastCost=this.cost;addCash(-this.cost);f.str+=1;this.carrying=true;this.dir=1;this.st='move';}
+            if(this.tmr<=0){let f=r.from;this.cost=f.ask;r.lastCost=this.cost;f.str+=1;this.carrying=true;this.dir=1;this.st='move';}
         }else if(this.st==='loadFac'){
             // Cloth pickup at factory
             this.tmr-=dt;
-            if(this.tmr<=0){let fc=r.from,t1=Math.round(r.dist*CPX);
-                if(fc.warehouse>0){fc.warehouse--;this.cost=fc.clothAsk+t1;r.lastCost=this.cost;addCash(-this.cost);this.carrying=true;this.dir=1;this.st='move';}
+            if(this.tmr<=0){let fc=r.from;
+                if(fc.warehouse>0){fc.warehouse--;this.cost=fc.clothAsk;r.lastCost=this.cost;this.carrying=true;this.dir=1;this.st='move';}
                 else{this.tmr=LOAD_TIME;} // wait for cloth to be produced
             }
         }else if(this.st==='waitStn'){
-            if(r.from.cargoQ.length>0){this.cost=r.from.cargoQ.shift();r.lastCost=this.cost;this.tmr=LOAD_TIME;this.st='stnLoad';}
+            let wantType=r.kind==='station_factory'?'wool':'cloth';
+            let idx=r.from.cargoQ.findIndex(c=>c.type===wantType);
+            if(idx>=0){let cargo=r.from.cargoQ.splice(idx,1)[0];this.cost=cargo.cost;r.lastCost=this.cost;this.tmr=LOAD_TIME;this.st='stnLoad';}
         }else if(this.st==='stnLoad'){
             this.tmr-=dt;if(this.tmr<=0){this.carrying=true;this.dir=1;this.st='move';}
         }else if(this.st==='waitFac'){
@@ -952,10 +961,17 @@ function drawStation(c,s){
     // Station name board
     c.fillStyle='#d4b896';c.fillRect(s.x-10,s.y-14,20,7);
     c.fillStyle='#2a1e10';c.font='bold 5px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('STN',s.x,s.y-10.5);
-    // Cargo indicator
-    if(s.cargoQ.length>0){
-        c.fillStyle='#f39c12';c.beginPath();c.arc(s.x+22,s.y-16,9,0,Math.PI*2);c.fill();
-        c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(s.cargoQ.length,s.x+22,s.y-16);
+    // Cargo indicator — separate wool/cloth badges
+    let nWool=s.cargoQ.filter(c2=>c2.type==='wool').length;
+    let nCloth=s.cargoQ.filter(c2=>c2.type==='cloth').length;
+    if(nWool>0){
+        c.fillStyle='#c8a862';c.beginPath();c.arc(s.x+22,s.y-16,9,0,Math.PI*2);c.fill();
+        c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(nWool,s.x+22,s.y-16);
+    }
+    if(nCloth>0){
+        let bx2=nWool>0?s.x+34:s.x+22;
+        c.fillStyle='#5B6DAF';c.beginPath();c.arc(bx2,s.y-16,9,0,Math.PI*2);c.fill();
+        c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(nCloth,bx2,s.y-16);
     }
 }
 
@@ -1058,7 +1074,7 @@ world.addEventListener('pointerdown',e=>{
 });
 
 function startDrag(e,entity,type){
-    S.drag=true;S.dragFrom=entity;S.dragType=type;S.mouse=cpos(e);
+    S.drag=true;S.dragFrom=entity;S.dragType=type;S.mouse=cpos(e);S.dragStart=cpos(e);
     world.style.overflow='hidden';cv.style.touchAction='none';
     cv.setPointerCapture(e.pointerId);e.preventDefault();closeAll();
 }
@@ -1094,8 +1110,12 @@ window.addEventListener('pointerup',e=>{
         // Station → Station: lay track
         // Station → Factory: wool delivery feeder
         // Station → City: cloth delivery feeder
+        let dragDist=S.dragStart?dd(p.x,p.y,S.dragStart.x,S.dragStart.y):99;
         let hs2=S.rail.stations.find(s=>s!==S.dragFrom&&dd(p.x,p.y,s.x,s.y)<s.r*1.4);
-        if(hs2){
+        if(dragDist<25){
+            // Short tap on station → show cargo manifest
+            openStationManifest(S.dragFrom);
+        }else if(hs2){
             let ex=S.rail.trackRoutes.find(r=>(r.from===S.dragFrom&&r.to===hs2)||(r.from===hs2&&r.to===S.dragFrom));
             if(!ex)S.rail.trackRoutes.push(new TrackRoute(S.dragFrom,hs2));
         }else{
@@ -1113,7 +1133,26 @@ window.addEventListener('pointerup',e=>{
 // ═══════════════════════════════════════
 const $b=document.getElementById('buildDlg'),$m=document.getElementById('mgr'),$p=document.getElementById('phaseDlg');
 const $sd=document.getElementById('stationDlg'),$rdlg=document.getElementById('railDlg');
-function closeAll(){$b.style.display='none';$m.style.display='none';$sd.style.display='none';}
+const $stnM=document.getElementById('stnManifest');
+function closeAll(){$b.style.display='none';$m.style.display='none';$sd.style.display='none';$stnM.style.display='none';}
+function openStationManifest(stn){
+    document.getElementById('smTitle').textContent='Station Cargo';
+    let list=document.getElementById('smList');
+    if(stn.cargoQ.length===0){list.textContent='(empty)';$stnM.style.display='flex';return;}
+    // Group by type+cost
+    let groups={};
+    for(let item of stn.cargoQ){
+        let key=item.type+'|'+item.cost;
+        groups[key]=(groups[key]||{type:item.type,cost:item.cost,count:0});
+        groups[key].count++;
+    }
+    list.innerHTML=Object.values(groups).map(g=>{
+        let tag=`<span class="tag ${g.type}">${g.type}</span>`;
+        return `<div>${g.count}× ${tag} @ $${g.cost} each</div>`;
+    }).join('');
+    $stnM.style.display='flex';
+}
+document.getElementById('smClose').onclick=()=>{$stnM.style.display='none';};
 
 function openStationBuild(from,to,kind){
     S.pending={from,to,kind};
@@ -1197,8 +1236,8 @@ function feederNet(r){
     let tc=Math.round(r.dist*CPX);
     if(r.kind==='farm_station') return -(r.from.ask+tc);
     if(r.kind==='factory_station') return -(r.from.clothAsk+tc);
-    if(r.kind==='station_factory') return r.to.woolBid-(r.lastCost||0)-tc;
-    if(r.kind==='station_city')    return r.to.clothBid-(r.lastCost||0)-tc;
+    if(r.kind==='station_factory') return r.lastCost!=null ? r.to.woolBid-r.lastCost-tc : null;
+    if(r.kind==='station_city')    return r.lastCost!=null ? r.to.clothBid-r.lastCost-tc : null;
     return 0;
 }
 const FEEDER_LABELS={
@@ -1208,10 +1247,26 @@ const FEEDER_LABELS={
     station_city:'<span class="tag cloth">Stn→City</span>',
 };
 function openMgr(r){
-    let net,typeHTML;
+    let net,typeHTML,profitLabel='Profit / trip',descText='';
     if(FEEDER_KINDS.has(r.kind)){
         net=feederNet(r);
         typeHTML=FEEDER_LABELS[r.kind];
+        let tc=Math.round(r.dist*CPX);
+        if(r.kind==='farm_station'){
+            profitLabel='Cost per trip';
+            descText=`farm ask $${r.from.ask} + transport $${tc}`;
+        }else if(r.kind==='factory_station'){
+            profitLabel='Cost per trip';
+            descText=`factory ask $${r.from.clothAsk} + transport $${tc}`;
+        }else if(r.kind==='station_factory'){
+            profitLabel='Last delivery profit';
+            if(r.lastCost!=null) descText=`factory bid $${r.to.woolBid} \u2212 wool cost $${r.lastCost} \u2212 transport $${tc}`;
+            else descText='no delivery yet';
+        }else if(r.kind==='station_city'){
+            profitLabel='Last delivery profit';
+            if(r.lastCost!=null) descText=`city bid $${r.to.clothBid} \u2212 cloth cost $${r.lastCost} \u2212 transport $${tc}`;
+            else descText='no delivery yet';
+        }
     }else{
         let tc=Math.round(r.dist*CPX);
         let askP=r.kind==='wool'?r.from.ask:r.from.clothAsk;
@@ -1221,8 +1276,11 @@ function openMgr(r){
     }
     document.getElementById('mType').innerHTML=typeHTML;
     document.getElementById('mc').textContent=r.carts.length;
+    document.getElementById('mProfitLabel').textContent=profitLabel;
+    document.getElementById('mDesc').textContent=descText;
     let $p2=document.getElementById('mp');
-    $p2.textContent=(net>=0?'+$':'\u2212$')+Math.abs(net);$p2.className=net>=0?'pos':'neg';
+    if(net==null){$p2.textContent='—';$p2.className='';}
+    else{$p2.textContent=(net>=0?'+$':'\u2212$')+Math.abs(net);$p2.className=net>=0?'pos':'neg';}
     document.getElementById('mBuy').disabled=S.cash<CART_$;
     $m.style.display='flex';
 }
