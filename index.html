@@ -58,11 +58,10 @@ button:disabled{opacity:.4;cursor:default}
 </div>
 
 <div id="phaseDlg" class="panel modal">
-<h2>The Bottleneck</h2>
-<p style="text-align:left;font-size:.93rem;line-height:1.45;margin-bottom:8px">Your margins are thinning. Nearby farms are charging more and more, distant ones eat profits in transport. The carts are too slow and carry too little.</p>
-<p style="text-align:left;font-size:.93rem;line-height:1.45">Word reaches you of a new invention: <b>the steam railway</b>. Lay track, build stations, and move bulk wool across the island at a fraction of the cart cost.</p>
-<p style="font-style:italic;color:#B35B47;margin-top:12px;font-size:.88rem">Phase 1 complete — the cart era has reached its limit.</p>
-<button id="pCont" class="go" style="margin-top:8px">Keep Playing</button>
+<h2 style="color:#B35B47">Tight Margins</h2>
+<p style="text-align:left;font-size:.93rem;line-height:1.45;margin-bottom:8px">A route has turned <b style="color:#B35B47">red</b> — it's losing money each trip. Farms raise their prices as they get busier, and long hauls eat into profits.</p>
+<p style="text-align:left;font-size:.93rem;line-height:1.45">Watch the prices. A hungry factory will raise its wool bid. Try different farms or let a red route sit — prices will shift as supply and demand adjust.</p>
+<button id="pCont" class="go" style="margin-top:8px">Got it</button>
 </div>
 
 <div id="railDlg" class="panel modal">
@@ -349,14 +348,17 @@ class Factory{
         this.gate=null;this.gateQ=[];         // wool unloading
         this.clothGate=null;this.clothGateQ=[]; // cloth loading
         this.totalProcessed=0; // cumulative wool→cloth conversions
+        this.woolHunger=0;     // seconds since last wool received; boosts bid
     }
     get tier(){return this.totalProcessed<40?0:this.totalProcessed<100?1:2;}
     get procTime(){return [2.5,1.7,1.0][this.tier];}
     get woolBid(){
-        // Bid drops when warehouse full, rises when empty
+        // Bid drops when warehouse full, rises when empty;
+        // also rises the longer the factory has had no wool to process
         let fullness=this.warehouse/WAREHOUSE_MAX;
         let adj=Math.round((0.5-fullness)*6); // +3 when empty, -3 when full
-        return clamp(this.bBid+adj-~~(this.str/5),3,16);
+        let hunger=Math.min(6,~~(this.woolHunger/4)); // +1 per 4s starving, max +6
+        return clamp(this.bBid+adj-~~(this.str/5)+hunger,3,16);
     }
     get clothAsk(){
         // What factory charges for cloth — higher when scarce, lower when abundant
@@ -367,12 +369,12 @@ class Factory{
         if(this.str>0){this.str-=SDECAY*.7*dt;if(this.str<0)this.str=0;}
         // Process wool → cloth (speed scales with tier)
         if(this.woolQ>0){
-            this.pt+=dt;
+            this.pt+=dt;this.woolHunger=0;
             if(this.pt>=this.procTime){
                 this.woolQ--;this.pt=0;this.totalProcessed++;
                 if(this.warehouse<WAREHOUSE_MAX){this.warehouse++;smk(this.x+8,this.y-32);}
             }
-        }else this.pt=0;
+        }else{this.pt=0;if(this.gateQ.length===0)this.woolHunger+=dt;}
         // Wool unloading gate
         if(this.gate){this.gate.tmr-=dt;if(this.gate.tmr<=0){
             if(this.woolQ<8){// max 8 in processing
@@ -627,7 +629,14 @@ class Route{
         c.beginPath();c.moveTo(this.from.x,this.from.y);c.lineTo(this.to.x,this.to.y);
         let sel=this===S.selRoute;
         if(sel){c.strokeStyle='#FFD700';c.lineWidth=3;}
-        else{c.strokeStyle=this.kind==='cloth'?'rgba(91,109,175,.5)':'rgba(130,118,96,.5)';c.lineWidth=2;}
+        else{
+            let tc=Math.round(this.dist*CPX);
+            let ask=this.kind==='wool'?this.from.ask:this.from.clothAsk;
+            let bid=this.kind==='wool'?this.to.woolBid:this.to.clothBid;
+            let losing=bid-ask-tc<0;
+            c.strokeStyle=losing?'rgba(190,45,35,.80)':this.kind==='cloth'?'rgba(91,109,175,.5)':'rgba(130,118,96,.5)';
+            c.lineWidth=losing?2.5:2;
+        }
         c.setLineDash(this.kind==='cloth'?[8,4]:[5,5]);c.stroke();c.setLineDash([]);
         this.carts.forEach(ct=>ct.draw(c));
     }
@@ -1026,9 +1035,9 @@ document.getElementById('btnStation').onclick=()=>{
 
 function chkRailroad(){
     if(S.rail.announced)return;
-    // Count farms that have ever reached 2× their base ask
+    // Unlock when 2 farms hit 2× base ask, or as a fallback at day 40
     let nd=S.farms.filter(f=>f.ask>=f.bAsk*2).length;
-    if(nd<2)return;
+    if(nd<2&&S.day<40)return;
     S.rail.announced=true;S.rail.unlocked=true;
     document.getElementById('btnStation').style.display='inline-block';
     setTimeout(()=>{$rdlg.style.display='flex';closeAll();},400);
@@ -1093,7 +1102,7 @@ document.getElementById('bBuild').onclick=()=>{
     let {from,to,kind}=S.pending;
     let r=new Route(from,to,kind);
     if(kind==='wool')S.woolRoutes.push(r);else S.clothRoutes.push(r);
-    closeAll();chkPhase();
+    closeAll();
 };
 document.getElementById('mClose').onclick=()=>{closeAll();S.selRoute=null;};
 document.getElementById('mBuy').onclick=()=>{
@@ -1127,9 +1136,16 @@ document.getElementById('mDel').onclick=()=>{
     S.selRoute=null;closeAll();
 };
 document.getElementById('pCont').onclick=()=>{$p.style.display='none';};
+function routeNet(r){
+    let tc=Math.round(r.dist*CPX);
+    let ask=r.kind==='wool'?r.from.ask:r.from.clothAsk;
+    let bid=r.kind==='wool'?r.to.woolBid:r.to.clothBid;
+    return bid-ask-tc;
+}
 function chkPhase(){
-    let total=S.woolRoutes.length+S.clothRoutes.length;
-    if(!S.done&&total>=10){S.done=true;setTimeout(()=>{$p.style.display='flex';closeAll();},800);}
+    if(S.done)return;
+    let hasLosing=[...S.woolRoutes,...S.clothRoutes].some(r=>routeNet(r)<0);
+    if(hasLosing){S.done=true;setTimeout(()=>{$p.style.display='flex';closeAll();},600);}
 }
 
 // ═══════════════════════════════════════
@@ -1148,7 +1164,7 @@ function tick(now){
         S.rail.trackRoutes.forEach(r=>r.update(dt));
         S.rail.feederRoutes.forEach(r=>r.update(dt));
     }
-    chkRailroad();
+    chkRailroad();chkPhase();
     S.floats.forEach(f=>{f.y-=18*dt;f.life-=dt;});S.floats=S.floats.filter(f=>f.life>0);
     S.smoke.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.sz+=1.5*dt;p.life-=dt;});S.smoke=S.smoke.filter(p=>p.life>0);
     if(S.selRoute&&$m.style.display==='flex'){uiT+=dt;if(uiT>.6){uiT=0;openMgr(S.selRoute);}}else uiT=0;
