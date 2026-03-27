@@ -799,15 +799,22 @@ class Train{
         let atEnd=(this.p<=0.001&&this.dir===1)||(this.p>=0.999&&this.dir===-1);
         if(!atEnd)return;
         let stn=this.p<0.5?r.from:r.to;
-        // Drop first — only if this station has outbound delivery routes
-        let isDest=S.rail.feederRoutes.some(fr=>
-            (fr.kind==='station_factory'||fr.kind==='station_city')&&fr.from===stn);
-        if(isDest) while(this.cargo.length>0) stn.cargoQ.push(this.cargo.shift());
-        // Pick up — only if this station has inbound feeder routes (source role)
-        let isSrc=S.rail.feederRoutes.some(fr=>
-            (fr.kind==='farm_station'||fr.kind==='factory_station')&&fr.to===stn);
-        if(isSrc) while(this.cargo.length<TRAIN_CAP&&stn.cargoQ.length>0)
-            this.cargo.push(stn.cargoQ.shift());
+        let other=stn===r.from?r.to:r.from;
+        // Directional flow: pick up only cargo heading toward its sink via the other station
+        let wd=S.rail._woolDist,cd=S.rail._clothDist;
+        let myW=wd?.get(stn)??Infinity, otW=wd?.get(other)??Infinity;
+        let myC=cd?.get(stn)??Infinity, otC=cd?.get(other)??Infinity;
+        let woolFwd=otW<myW, clothFwd=otC<myC;
+        // Always drop all cargo at this station first
+        while(this.cargo.length>0) stn.cargoQ.push(this.cargo.shift());
+        // Pick up cargo that flows forward through this leg
+        let i=0;
+        while(this.cargo.length<TRAIN_CAP&&i<stn.cargoQ.length){
+            let item=stn.cargoQ[i];
+            if((item.type==='wool'&&woolFwd)||(item.type==='cloth'&&clothFwd)){
+                this.cargo.push(stn.cargoQ.splice(i,1)[0]);
+            }else i++;
+        }
     }
     draw(c){
         c.save();c.translate(this.x,this.y);
@@ -1117,7 +1124,7 @@ window.addEventListener('pointerup',e=>{
             openStationManifest(S.dragFrom);
         }else if(hs2){
             let ex=S.rail.trackRoutes.find(r=>(r.from===S.dragFrom&&r.to===hs2)||(r.from===hs2&&r.to===S.dragFrom));
-            if(!ex)S.rail.trackRoutes.push(new TrackRoute(S.dragFrom,hs2));
+            if(!ex){S.rail.trackRoutes.push(new TrackRoute(S.dragFrom,hs2));computeRailFlow();}
         }else{
             let tf=hitEntity(p,S.factories);
             if(tf){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_factory'&&r.from===S.dragFrom&&r.to===tf);if(!ex)openStationBuild(S.dragFrom,tf,'station_factory');return;}
@@ -1193,7 +1200,7 @@ document.getElementById('sdBuild').onclick=()=>{
     if(!S.pending||!S.pending.kind)return;
     let{from,to,kind}=S.pending;
     S.rail.feederRoutes.push(new FeederRoute(from,to,kind));
-    closeAll();
+    computeRailFlow();closeAll();
 };
 document.getElementById('rOk').onclick=()=>{$rdlg.style.display='none';};
 
@@ -1230,6 +1237,32 @@ function openBuild(from,to,kind){
     let btn=document.getElementById('bBuild');
     btn.className=kind==='cloth'?'cloth':'go';
     $b.style.display='flex';
+}
+function computeRailFlow(){
+    // BFS from feeder sinks to compute hop-distance for each station.
+    // Trains use this to decide which cargo to pick up (always move toward closer sink).
+    let adj=new Map();
+    for(let s of S.rail.stations) adj.set(s,[]);
+    for(let tr of S.rail.trackRoutes){
+        adj.get(tr.from)?.push(tr.to);
+        adj.get(tr.to)?.push(tr.from);
+    }
+    function bfsDist(seeds){
+        let dist=new Map(),q=[];
+        for(let s of seeds){dist.set(s,0);q.push(s);}
+        let h=0;
+        while(h<q.length){
+            let s=q[h++];
+            for(let n of (adj.get(s)||[])){
+                if(!dist.has(n)){dist.set(n,dist.get(s)+1);q.push(n);}
+            }
+        }
+        return dist;
+    }
+    let woolSeeds=S.rail.feederRoutes.filter(fr=>fr.kind==='station_factory').map(fr=>fr.from);
+    let clothSeeds=S.rail.feederRoutes.filter(fr=>fr.kind==='station_city').map(fr=>fr.from);
+    S.rail._woolDist=bfsDist(woolSeeds);
+    S.rail._clothDist=bfsDist(clothSeeds);
 }
 const FEEDER_KINDS=new Set(['farm_station','station_factory','factory_station','station_city']);
 function feederNet(r){
@@ -1305,7 +1338,7 @@ document.getElementById('mDel').onclick=()=>{
     if(FEEDER_KINDS.has(r.kind)){
         r.carts=[];  // stop all carts on this route
         S.rail.feederRoutes=S.rail.feederRoutes.filter(x=>x!==r);
-        S.selRoute=null;closeAll();return;
+        computeRailFlow();S.selRoute=null;closeAll();return;
     }
     // Clean carts from queues
     for(let c of r.carts){
