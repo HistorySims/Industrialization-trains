@@ -115,7 +115,7 @@ const S={
     drag:false,dragFrom:null,dragType:null,mouse:{x:0,y:0},
     selRoute:null,pending:null,
     placingStation:false,
-    farmDoublings:0,
+    farmDoublings:0,northFactory:false,
     rail:{unlocked:false,announced:false,stations:[],trains:[],trackRoutes:[],feederRoutes:[]}
 };
 
@@ -359,17 +359,21 @@ class Factory{
     }
     get tier(){return this.totalProcessed<40?0:this.totalProcessed<100?1:2;}
     get procTime(){return [2.5,1.7,1.0][this.tier];}
+    get woolQMax(){return [8,12,16][this.tier];}
+    get warehouseMax(){return [20,32,48][this.tier];}
     get woolBid(){
         // Bid drops when warehouse full, rises when empty;
-        // also rises the longer the factory has had no wool to process
-        let fullness=this.warehouse/WAREHOUSE_MAX;
+        // also rises with tier (larger factory needs more wool) and with hunger
+        let fullness=this.warehouse/this.warehouseMax;
         let adj=Math.round((0.5-fullness)*6); // +3 when empty, -3 when full
-        let hunger=Math.min(6,~~(this.woolHunger/4)); // +1 per 4s starving, max +6
-        return clamp(this.bBid+adj-~~(this.str/5)+hunger,3,16);
+        let hungerCap=6+this.tier*2;
+        let hunger=Math.min(hungerCap,~~(this.woolHunger/4));
+        let tierBoost=[0,3,6][this.tier]; // tier 1: +3, tier 2: +6 base demand
+        return clamp(this.bBid+adj-~~(this.str/5)+hunger+tierBoost,3,22);
     }
     get clothAsk(){
         // What factory charges for cloth — higher when scarce, lower when abundant
-        let fullness=this.warehouse/WAREHOUSE_MAX;
+        let fullness=this.warehouse/this.warehouseMax;
         return clamp(Math.round(8+fullness*4),6,14);
     }
     update(dt){
@@ -379,18 +383,18 @@ class Factory{
             this.pt+=dt;this.woolHunger=0;
             if(this.pt>=this.procTime){
                 this.woolQ--;this.pt=0;this.totalProcessed++;
-                if(this.warehouse<WAREHOUSE_MAX){this.warehouse++;smk(this.x+8,this.y-32);}
+                if(this.warehouse<this.warehouseMax){this.warehouse++;smk(this.x+8,this.y-32);}
             }
         }else{this.pt=0;if(this.gateQ.length===0)this.woolHunger+=dt;}
         // Wool unloading gate
         if(this.gate){this.gate.tmr-=dt;if(this.gate.tmr<=0){
-            if(this.woolQ<8){// max 8 in processing
+            if(this.woolQ<this.woolQMax){// scales with tier
                 this.woolQ++;this.str+=1;
                 this.gate.dir=-1;this.gate.st='move';
             }else{this.gate.st='waitQ';this.gateQ.unshift(this.gate);}
             this.gate=null;
         }}
-        if(!this.gate&&this.gateQ.length>0&&this.woolQ<8){
+        if(!this.gate&&this.gateQ.length>0&&this.woolQ<this.woolQMax){
             let n=this.gateQ.shift();n.tmr=UNLOAD_TIME;n.st='unloading';this.gate=n;
         }
         // Cloth loading gate
@@ -808,13 +812,19 @@ class Train{
         let woolFwd=otW<myW, clothFwd=otC<myC;
         // Always drop all cargo at this station first
         while(this.cargo.length>0) stn.cargoQ.push(this.cargo.shift());
-        // Pick up cargo that flows forward through this leg
-        let i=0;
-        while(this.cargo.length<TRAIN_CAP&&i<stn.cargoQ.length){
-            let item=stn.cargoQ[i];
-            if((item.type==='wool'&&woolFwd)||(item.type==='cloth'&&clothFwd)){
-                this.cargo.push(stn.cargoQ.splice(i,1)[0]);
-            }else i++;
+        // Equalize: pick up half the surplus over the other station, capped at capacity
+        let stnW=stn.cargoQ.filter(it=>it.type==='wool').length;
+        let stnC=stn.cargoQ.filter(it=>it.type==='cloth').length;
+        let otW=other.cargoQ.filter(it=>it.type==='wool').length;
+        let otC=other.cargoQ.filter(it=>it.type==='cloth').length;
+        let pickW=woolFwd?Math.min(TRAIN_CAP,Math.max(0,Math.ceil((stnW-otW)/2))):0;
+        let pickC=clothFwd?Math.min(TRAIN_CAP,Math.max(0,Math.ceil((stnC-otC)/2))):0;
+        let wPk=0,cPk=0,idx=0;
+        while(this.cargo.length<TRAIN_CAP&&idx<stn.cargoQ.length){
+            let it=stn.cargoQ[idx];
+            if(it.type==='wool'&&wPk<pickW){this.cargo.push(stn.cargoQ.splice(idx,1)[0]);wPk++;}
+            else if(it.type==='cloth'&&cPk<pickC){this.cargo.push(stn.cargoQ.splice(idx,1)[0]);cPk++;}
+            else idx++;
         }
     }
     draw(c){
@@ -859,7 +869,7 @@ class FeederCart{
                     // Depositing at station; cost rides in the queue for the train to carry
                     r.to.cargoQ.push({type:r.kind==='farm_station'?'wool':'cloth',cost:this.cost});this.carrying=false;this.dir=-1;
                 }else if(r.kind==='station_factory'){
-                    if(r.to.woolQ<8){
+                    if(r.to.woolQ<r.to.woolQMax){
                         r.to.woolQ++;r.to.str+=1;
                         let t2=Math.round(r.dist*CPX),net=r.to.woolBid-this.cost-t2;
                         addCash(net);flt(r.to.x,r.to.y-40,net>=0?'+$'+net:'-$'+Math.abs(net),net>=0?'#4F7942':'#B35B47');
@@ -895,7 +905,7 @@ class FeederCart{
         }else if(this.st==='stnLoad'){
             this.tmr-=dt;if(this.tmr<=0){this.carrying=true;this.dir=1;this.st='move';}
         }else if(this.st==='waitFac'){
-            if(r.to.woolQ<8)this.st='move';
+            if(r.to.woolQ<r.to.woolQMax)this.st='move';
         }
     }
     draw(c){
@@ -1243,6 +1253,24 @@ function chkRailroad(){
     setTimeout(()=>{$rdlg.style.display='flex';closeAll();},400);
 }
 
+function chkNorthFactory(){
+    if(S.northFactory)return;
+    if(S.day<80)return;
+    S.northFactory=true;
+    // Try to place a new factory in the northern third of the island
+    for(let a=0;a<300;a++){
+        let x=W*.08+Math.random()*W*.84;
+        let y=H*.04+Math.random()*H*.35;
+        if(!ptIn(x,y,islandPoly))continue;
+        let all=[...S.farms,...S.factories,...S.cities,...S.ports,...S.rail.stations];
+        if(all.some(e=>dd(x,y,e.x,e.y)<110))continue;
+        let f=new Factory(x,y);
+        S.factories.push(f);
+        flt(x,y-50,'New Factory!','#4F7942');
+        return;
+    }
+}
+
 function openBuild(from,to,kind){
     S.pending={from,to,kind};
     let tc=Math.round(dd(from.x,from.y,to.x,to.y)*CPX);
@@ -1413,7 +1441,7 @@ function tick(now){
         S.rail.trackRoutes.forEach(r=>r.update(dt));
         S.rail.feederRoutes.forEach(r=>r.update(dt));
     }
-    chkRailroad();chkPhase();
+    chkRailroad();chkPhase();chkNorthFactory();
     S.floats.forEach(f=>{f.y-=18*dt;f.life-=dt;});S.floats=S.floats.filter(f=>f.life>0);
     S.smoke.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.sz+=1.5*dt;p.life-=dt;});S.smoke=S.smoke.filter(p=>p.life>0);
     if(S.selRoute&&$m.style.display==='flex'){uiT+=dt;if(uiT>.6){uiT=0;openMgr(S.selRoute);}}else uiT=0;
