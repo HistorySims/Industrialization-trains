@@ -492,10 +492,11 @@ class City{
         return clamp(this.baseBid-adj,6,22);
     }
     update(dt){
-        // Supply dissipates slowly (1 unit ≈ 15s to decay fully)
-        if(this.supply>0) this.supply=Math.max(0,this.supply-0.067*dt);
-        // Price smoothly tracks supply with a lag (~8s to fully respond)
-        this.smoothSupply+=( this.supply-this.smoothSupply)*0.12*dt;
+        // Supply dissipates (~10s to decay fully) — faster decay = faster price rebound
+        if(this.supply>0) this.supply=Math.max(0,this.supply-0.10*dt);
+        // Asymmetric smoothing: slow to drop (0.05×), quick to rebound (0.25×)
+        let diff=this.supply-this.smoothSupply;
+        this.smoothSupply+=diff*(diff>0?0.05:0.25)*dt;
     }
     draw(c){
         let s=this.sz==='large'?1:.75;
@@ -614,7 +615,7 @@ class Port{
         this.priceTimer+=dt;
         if(this.priceTimer>=this.priceInterval){
             this.priceTimer=0;this.priceInterval=28+Math.random()*24;
-            this.baseBid=clamp(this.baseBid+(Math.random()<.5?1:-1),10,14);
+            this.baseBid=clamp(this.baseBid+(Math.random()<.5?1:-1),10,16);
         }
         // Spawn a boat when there's cargo and fewer than 2 active
         this.boatTmr-=dt;
@@ -917,9 +918,30 @@ class FeederRoute{
     draw(c){
         let sel=this===S.selRoute;
         let isCloth=this.kind==='factory_station'||this.kind==='station_city';
-        c.beginPath();c.moveTo(this.from.x,this.from.y);c.lineTo(this.to.x,this.to.y);
-        if(sel){c.strokeStyle='#FFD700';c.lineWidth=3;c.setLineDash([]);}
-        else{c.strokeStyle=isCloth?'rgba(91,109,175,.5)':'rgba(122,78,42,.5)';c.lineWidth=2;c.setLineDash([4,6]);}
+        // Parallel offset for station_factory / factory_station pairs on same link
+        let myOffset=0;
+        if(this.kind==='station_factory'){
+            if(S.rail.feederRoutes.some(r=>r.kind==='factory_station'&&r.from===this.to&&r.to===this.from)) myOffset=3.5;
+        }else if(this.kind==='factory_station'){
+            if(S.rail.feederRoutes.some(r=>r.kind==='station_factory'&&r.from===this.to&&r.to===this.from)) myOffset=-3.5;
+        }
+        let x1=this.from.x,y1=this.from.y,x2=this.to.x,y2=this.to.y;
+        if(myOffset!==0){
+            let px=-(y2-y1)/this.dist*myOffset,py=(x2-x1)/this.dist*myOffset;
+            x1+=px;y1+=py;x2+=px;y2+=py;
+        }
+        // Color: red if losing, gold if selected, else type color
+        let net=null;
+        if(this.kind==='station_factory'||this.kind==='station_city') net=feederNet(this);
+        else if(this.kind==='factory_station'){
+            let paired=S.rail.feederRoutes.find(r=>r.kind==='station_city'&&r.from===this.to);
+            if(paired) net=feederNet(paired);
+        }
+        let strokeColor=sel?'#FFD700':
+            (net!==null&&net<0)?'rgba(179,91,71,.85)':
+            isCloth?'rgba(91,109,175,.55)':'rgba(122,78,42,.55)';
+        c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);
+        c.strokeStyle=strokeColor;c.lineWidth=sel?3:2;c.setLineDash(sel?[]:[4,6]);
         c.stroke();c.setLineDash([]);
         this.carts.forEach(ct=>ct.draw(c));
     }
@@ -1128,7 +1150,7 @@ window.addEventListener('pointerup',e=>{
         }else{
             let tf=hitEntity(p,S.factories);
             if(tf){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_factory'&&r.from===S.dragFrom&&r.to===tf);if(!ex)openStationBuild(S.dragFrom,tf,'station_factory');return;}
-            let tc=hitEntity(p,S.cities);
+            let tc=hitEntity(p,S.cities)||hitEntity(p,S.ports);
             if(tc){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_city'&&r.from===S.dragFrom&&r.to===tc);if(!ex)openStationBuild(S.dragFrom,tc,'station_city');}
         }
     }
@@ -1188,7 +1210,9 @@ function openStationBuild(from,to,kind){
         document.getElementById('sdLabB').textContent='Train leg';
         document.getElementById('sdB').textContent='$0 (free)';
     }else if(kind==='station_city'){
-        document.getElementById('sdLabA').textContent='City Cloth Bid';
+        let destLabel=to.type==='port'?'Port':'City';
+        document.getElementById('sdTitle').textContent=`Delivery (Station \u2192 ${destLabel})`;
+        document.getElementById('sdLabA').textContent=`${destLabel} Cloth Bid`;
         document.getElementById('sdA').textContent=to.clothBid;
         document.getElementById('sdLabB').textContent='Train leg';
         document.getElementById('sdB').textContent='$0 (free)';
@@ -1283,7 +1307,9 @@ function openMgr(r){
     let net,typeHTML,profitLabel='Profit / trip',descText='';
     if(FEEDER_KINDS.has(r.kind)){
         net=feederNet(r);
-        typeHTML=FEEDER_LABELS[r.kind];
+        typeHTML=r.kind==='station_city'&&r.to.type==='port'
+            ?'<span class="tag cloth">Stn→Port</span>'
+            :FEEDER_LABELS[r.kind];
         let tc=Math.round(r.dist*CPX);
         if(r.kind==='farm_station'){
             profitLabel='Cost per trip';
@@ -1296,8 +1322,9 @@ function openMgr(r){
             if(r.lastCost!=null) descText=`factory bid $${r.to.woolBid} \u2212 wool cost $${r.lastCost} \u2212 transport $${tc}`;
             else descText='no delivery yet';
         }else if(r.kind==='station_city'){
+            let destName=r.to.type==='port'?'port':'city';
             profitLabel='Last delivery profit';
-            if(r.lastCost!=null) descText=`city bid $${r.to.clothBid} \u2212 cloth cost $${r.lastCost} \u2212 transport $${tc}`;
+            if(r.lastCost!=null) descText=`${destName} bid $${r.to.clothBid} \u2212 cloth cost $${r.lastCost} \u2212 transport $${tc}`;
             else descText='no delivery yet';
         }
     }else{
