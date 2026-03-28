@@ -811,19 +811,15 @@ class Train{
         if(!atEnd)return;
         let stn=this.p<0.5?r.from:r.to;
         let other=stn===r.from?r.to:r.from;
-        // Directional flow: pick up only cargo heading toward its sink via the other station
-        let wd=S.rail._woolDist,cd=S.rail._clothDist;
-        let myW=wd?.get(stn)??Infinity, otW2=wd?.get(other)??Infinity;
-        let myC=cd?.get(stn)??Infinity, otC2=cd?.get(other)??Infinity;
-        let woolFwd=otW2<myW, clothFwd=otC2<myC;
         // Count pre-existing cargo at station BEFORE dropping our load
         let preW=stn.cargoQ.filter(it=>it.type==='wool').length;
         let preC=stn.cargoQ.filter(it=>it.type==='cloth').length;
         // Drop all cargo at this station
         while(this.cargo.length>0) stn.cargoQ.push(this.cargo.shift());
-        // Pick up half of the pre-existing count (forward-flowing types only, unlimited capacity)
-        let pickW=woolFwd?Math.floor(preW/2):0;
-        let pickC=clothFwd?Math.floor(preC/2):0;
+        // Take half of what was already here (before our drop) — no directional logic needed;
+        // trains naturally distribute cargo by always halving whatever they find
+        let pickW=Math.floor(preW/2);
+        let pickC=Math.floor(preC/2);
         let wPk=0,cPk=0,idx=0;
         while(idx<stn.cargoQ.length){
             let it=stn.cargoQ[idx];
@@ -1153,7 +1149,7 @@ window.addEventListener('pointerup',e=>{
         }else if(S.rail.unlocked&&S.dragFrom){
             // Farm → Station feeder
             let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
-            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='farm_station'&&r.from===S.dragFrom&&r.to===hs);if(!ex)openStationBuild(S.dragFrom,hs,'farm_station');}
+            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='farm_station'&&r.from===S.dragFrom&&r.to===hs);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,hs,'farm_station');}
         }
     }else if(S.dragType==='cloth'){
         // Direct cloth route to city, OR via station (factory_station)
@@ -1163,7 +1159,7 @@ window.addEventListener('pointerup',e=>{
             if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tc,'cloth');
         }else if(S.rail.unlocked&&S.dragFrom){
             let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
-            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='factory_station'&&r.from===S.dragFrom&&r.to===hs);if(!ex)openStationBuild(S.dragFrom,hs,'factory_station');}
+            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='factory_station'&&r.from===S.dragFrom&&r.to===hs);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,hs,'factory_station');}
         }
     }else if(S.dragType==='station'){
         // Station → Station: lay track
@@ -1179,9 +1175,9 @@ window.addEventListener('pointerup',e=>{
             if(!ex){S.rail.trackRoutes.push(new TrackRoute(S.dragFrom,hs2));computeRailFlow();}
         }else{
             let tf=hitEntity(p,S.factories);
-            if(tf){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_factory'&&r.from===S.dragFrom&&r.to===tf);if(!ex)openStationBuild(S.dragFrom,tf,'station_factory');return;}
+            if(tf){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_factory'&&r.from===S.dragFrom&&r.to===tf);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,tf,'station_factory');return;}
             let tc=hitEntity(p,S.cities)||hitEntity(p,S.ports);
-            if(tc){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_city'&&r.from===S.dragFrom&&r.to===tc);if(!ex)openStationBuild(S.dragFrom,tc,'station_city');}
+            if(tc){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_city'&&r.from===S.dragFrom&&r.to===tc);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,tc,'station_city');}
         }
     }
     S.dragFrom=null;S.dragType=null;
