@@ -125,7 +125,7 @@ const S={
     placingStation:false,
     farmDoublings:0,northFactory:false,
     rail:{unlocked:false,announced:false,stations:[],trains:[],trackRoutes:[],feederRoutes:[]},
-    colony:{farms:[],workshops:[],cities:[],routes:[]}
+    colony:{farms:[],workshops:[],cities:[],routes:[],ports:[]}
 };
 
 // ═══════════════════════════════════════
@@ -213,38 +213,40 @@ function traceColonyPoly(c){
 }
 
 // ═══════════════════════════════════════
-// COLONIAL ISLAND — wide, flat, subcontinental
-// Occupies rightmost third of canvas (W+gap to TW)
+// COLONIAL MAINLAND — subcontinental coast facing west
+// Left coast is irregular; mainland fills to right canvas edge (TW).
+// Wide ocean channel between W and the coast.
 // ═══════════════════════════════════════
+let colonyRiverMouths=[]; // [{x,y}] set by buildColonyIsland, used by renderBG+initColony
+const COLONY_COAST_X=W+300; // nominal coast baseline — ocean gap ≈ 300px
+
 function buildColonyIsland(){
-    let CX=W+90;           // island left edge
-    let CW=TW-W-110;       // island width
-    let seedR=53;function scr(){seedR=(seedR*16807)%2147483647;return(seedR-1)/2147483646;}
     let seedL=147;function scl(){seedL=(seedL*16807)%2147483647;return(seedL-1)/2147483646;}
-    const segs=70;
-    const right=[];
+    const segs=90;
+    // River mouth t-values along coast (0=top, 1=bottom)
+    const riv1T=0.30, riv2T=0.62;
+    const coast=[];
     for(let i=0;i<=segs;i++){
         let t=i/segs;
-        let y=H*0.05+H*0.90*t;
-        let retreat=CW*(0.025+0.04*Math.sin(t*3.8+0.7)+0.015*Math.sin(t*7.2+1.4));
-        if(t<0.06) retreat+=CW*0.07*(1-t/0.06);   // round off north tip
-        if(t>0.94) retreat+=CW*0.07*((t-0.94)/0.06);
-        let jag=CW*0.006;
-        right.push({x:clamp(CX+CW-retreat+scr()*jag*2-jag,CX+CW*0.35,TW-5),y});
+        let y=H*t;
+        // Undulating coast; estuary bays cut in at river positions
+        let dev=32+28*Math.sin(t*3.5+0.7)+14*Math.sin(t*7.1+1.3);
+        // Two estuaries where rivers meet coast — scoop inward
+        let e1=Math.max(0,1-Math.abs(t-riv1T)/0.038)*30;
+        let e2=Math.max(0,1-Math.abs(t-riv2T)/0.038)*30;
+        let jag=12;
+        coast.push({x:clamp(COLONY_COAST_X+dev+e1+e2+scl()*jag*2-jag,W+240,COLONY_COAST_X+120),y});
     }
-    const left=[];
-    for(let i=0;i<=segs;i++){
-        let t=i/segs;
-        let y=H*0.05+H*0.90*t;
-        let protrude=CW*(0.018+0.03*Math.sin(t*3.1+1.2)+0.012*Math.sin(t*5.5+0.8));
-        if(t<0.06) protrude+=CW*0.06*(1-t/0.06);
-        if(t>0.94) protrude+=CW*0.06*((t-0.94)/0.06);
-        let jag=CW*0.005;
-        left.push({x:clamp(CX+protrude+scl()*jag*2-jag,W+50,CX+CW*0.55),y});
-    }
+    // Mainland polygon: coast going S, then canvas bottom-right, then top-right
     colonyIslandPoly=[];
-    for(let p of right) colonyIslandPoly.push(p);
-    for(let i=left.length-1;i>=0;i--) colonyIslandPoly.push(left[i]);
+    for(let p of coast) colonyIslandPoly.push(p);
+    colonyIslandPoly.push({x:TW,y:H});
+    colonyIslandPoly.push({x:TW,y:0});
+    // River mouth positions for renderBG and port placement
+    colonyRiverMouths=[
+        {x:coast[Math.round(riv1T*segs)].x, y:coast[Math.round(riv1T*segs)].y},
+        {x:coast[Math.round(riv2T*segs)].x, y:coast[Math.round(riv2T*segs)].y}
+    ];
 }
 
 // ═══════════════════════════════════════
@@ -340,71 +342,81 @@ function renderBG(){
         bx.fillStyle='rgba(240,240,238,0.52)';bx.fill();
      }
     }
-    // ── Colonial island ──────────────────────────────────────────
-    // Base land fill — warm gradient (ochre/golden-green/dusty brown)
-    let clg=bx.createLinearGradient(W,0,TW,H);
-    clg.addColorStop(0,'#B8A060');clg.addColorStop(.3,'#A09050');
-    clg.addColorStop(.6,'#8EA864');clg.addColorStop(1,'#9AB060');
+    // ── Colonial mainland ─────────────────────────────────────────
+    // Warm land fill — ochre/golden-brown/tropical green
+    let clg=bx.createLinearGradient(COLONY_COAST_X,0,TW,H);
+    clg.addColorStop(0,'#B8A060');clg.addColorStop(.25,'#A09050');
+    clg.addColorStop(.55,'#8EA864');clg.addColorStop(1,'#9AB060');
     traceColonyPoly(bx);bx.fillStyle=clg;bx.fill();
-    traceColonyPoly(bx);bx.lineWidth=6;bx.strokeStyle='rgba(160,130,70,.5)';bx.stroke();
-    traceColonyPoly(bx);bx.lineWidth=2;bx.strokeStyle='rgba(100,80,30,.4)';bx.stroke();
+    // Sandy coastal fringe (applied to the left coast only via stroke)
+    traceColonyPoly(bx);bx.lineWidth=12;bx.strokeStyle='rgba(225,205,148,.52)';bx.stroke();
+    traceColonyPoly(bx);bx.lineWidth=5;bx.strokeStyle='rgba(240,218,162,.35)';bx.stroke();
     bx.save();traceColonyPoly(bx);bx.clip();
-    // Dusty ochre/dry patches across the land
+    // Dusty ochre/dry field patches
     let csPal=[[178,155,80],[195,168,90],[155,140,65],[185,160,75],[170,150,60]];
-    for(let i=0;i<50;i++){
-        let fx=W+80+Math.random()*(TW-W-130),fy=H*.05+Math.random()*H*.9;
-        if(!ptIn(fx,fy,colonyIslandPoly))continue;
-        let fw=25+Math.random()*80,fh=12+Math.random()*40;
+    for(let i=0;i<70;i++){
+        let fx=COLONY_COAST_X+40+Math.random()*(TW-COLONY_COAST_X-60),fy=Math.random()*H;
+        let fw=28+Math.random()*90,fh=14+Math.random()*50;
         let [r,g,b]=csPal[~~(Math.random()*csPal.length)];
         bx.save();bx.translate(fx,fy);bx.rotate((Math.random()-.5)*.4);
-        bx.fillStyle=`rgba(${r},${g},${b},${.15+Math.random()*.2})`;bx.fillRect(-fw/2,-fh/2,fw,fh);
+        bx.fillStyle=`rgba(${r},${g},${b},${.13+Math.random()*.18})`;bx.fillRect(-fw/2,-fh/2,fw,fh);
         bx.restore();
     }
-    // Warm scrub/bushes (dusty green)
-    for(let i=0;i<30;i++){
-        let tx=W+90+Math.random()*(TW-W-140),ty=H*.06+Math.random()*H*.88;
-        if(!ptIn(tx,ty,colonyIslandPoly))continue;
-        for(let j=0;j<2+~~(Math.random()*4);j++){
-            let x=tx+Math.random()*18-9,y=ty+Math.random()*12-6,r=4+Math.random()*9;
-            let g=80+~~(Math.random()*30);
-            bx.fillStyle=`rgba(${g+20},${g+30},${g-10},${.35+Math.random()*.25})`;
+    // Warm scrub/tropical bushes
+    for(let i=0;i<45;i++){
+        let tx=COLONY_COAST_X+50+Math.random()*(TW-COLONY_COAST_X-80),ty=Math.random()*H;
+        for(let j=0;j<2+~~(Math.random()*5);j++){
+            let x=tx+Math.random()*20-10,y=ty+Math.random()*14-7,r=4+Math.random()*10;
+            let g=78+~~(Math.random()*30);
+            bx.fillStyle=`rgba(${g+22},${g+28},${g-12},${.32+Math.random()*.26})`;
             bx.beginPath();bx.arc(x,y,r,0,Math.PI*2);bx.fill();
         }
     }
-    // Sandy beach fringe
-    traceColonyPoly(bx);bx.lineWidth=10;bx.strokeStyle='rgba(220,198,140,.5)';bx.stroke();
-    traceColonyPoly(bx);bx.lineWidth=4;bx.strokeStyle='rgba(235,215,160,.35)';bx.stroke();
-    // Flat gentle relief (no dramatic hills, just subtle warmth)
-    for(let i=0;i<12;i++){
-        let hx=W+100+Math.random()*(TW-W-150),hy=H*.1+Math.random()*H*.8;
-        let rx=60+Math.random()*140,ry=8+Math.random()*18;
+    // Subtle flat relief
+    for(let i=0;i<16;i++){
+        let hx=COLONY_COAST_X+80+Math.random()*(TW-COLONY_COAST_X-120),hy=H*.05+Math.random()*H*.9;
+        let rx=70+Math.random()*160,ry=9+Math.random()*20;
         let hg=bx.createRadialGradient(hx,hy-ry*.3,0,hx,hy,rx*.9);
-        hg.addColorStop(0,'rgba(255,220,150,.05)');hg.addColorStop(.5,'rgba(255,210,130,.02)');hg.addColorStop(1,'rgba(0,0,0,.03)');
+        hg.addColorStop(0,'rgba(255,220,150,.04)');hg.addColorStop(1,'rgba(0,0,0,.025)');
         bx.fillStyle=hg;bx.beginPath();bx.ellipse(hx,hy,rx,ry,0,0,Math.PI*2);bx.fill();
     }
-    // Rivers/delta channels — wide flat deltas are characteristic
-    {let seedRv=37;function srv(){seedRv=(seedRv*16807)%2147483647;return(seedRv-1)/2147483646;}
-     let CX2=W+90,CW2=TW-W-110;
-     for(let ri=0;ri<3;ri++){
-        let t=0.25+ri*0.25;
-        let y0=H*0.05+H*0.90*t;
-        let xL=CX2+CW2*(0.1+srv()*0.3);
-        let xR=xL+CW2*(0.15+srv()*0.2);
-        let ySrc=y0-H*0.08;
-        let xMid=(xL+xR)/2+(srv()*2-1)*CW2*0.05;
-        bx.beginPath();bx.moveTo(xMid,ySrc);bx.quadraticCurveTo(xMid,y0-H*0.02,xL,y0);
-        bx.strokeStyle='rgba(80,140,180,0.45)';bx.lineWidth=4+ri;bx.lineCap='round';bx.stroke();
-        bx.beginPath();bx.moveTo(xMid,ySrc);bx.quadraticCurveTo(xMid,y0-H*0.02,xL,y0);
-        bx.strokeStyle='rgba(160,210,240,0.35)';bx.lineWidth=2+ri*.5;bx.stroke();
-     }
+    // ── Two great rivers flowing from inland to the coast ───────
+    // Each river has a mouth at colonyRiverMouths[i] and meanders inland
+    if(colonyRiverMouths.length>=2){
+        let cw=TW-COLONY_COAST_X;
+        let rivers=[
+            {mouth:colonyRiverMouths[0],dy:-H*.04,bend1X:0.35,bend1dY:-0.05,bend2X:0.65,bend2dY:0.03},
+            {mouth:colonyRiverMouths[1],dy: H*.03,bend1X:0.32,bend1dY: 0.04,bend2X:0.62,bend2dY:-0.04}
+        ];
+        for(let rv of rivers){
+            let mx=rv.mouth.x,my=rv.mouth.y;
+            let srcX=mx+cw*0.80+(rv===rivers[0]?-cw*0.05:cw*0.05);
+            let srcY=my+rv.dy;
+            let c1x=mx+cw*rv.bend1X,c1y=my+H*rv.bend1dY;
+            let c2x=mx+cw*rv.bend2X,c2y=my+H*rv.bend2dY;
+            // Wide river body
+            bx.beginPath();bx.moveTo(mx,my);
+            bx.bezierCurveTo(c1x,c1y,c2x,c2y,srcX,srcY);
+            bx.strokeStyle='rgba(70,130,175,0.62)';bx.lineWidth=13;bx.lineCap='round';bx.lineJoin='round';bx.stroke();
+            // Bright water highlight
+            bx.beginPath();bx.moveTo(mx,my);
+            bx.bezierCurveTo(c1x,c1y,c2x,c2y,srcX,srcY);
+            bx.strokeStyle='rgba(160,220,245,0.42)';bx.lineWidth=5;bx.stroke();
+            // Estuary delta fan at the mouth
+            for(let a=-0.35;a<=0.35;a+=0.175){
+                bx.beginPath();bx.moveTo(mx,my);
+                bx.lineTo(mx-35*Math.cos(a),my+35*Math.sin(a));
+                bx.strokeStyle='rgba(90,150,190,0.30)';bx.lineWidth=4;bx.stroke();
+            }
+        }
     }
     bx.restore();
-    // ── Separating ocean — add a few extra wave curls in the channel ──
-    {let CX2=W+90;
-     for(let i=0;i<18;i++){
-        let wx=W+5+Math.random()*(CX2-W-5),wy=Math.random()*H;
-        bx.strokeStyle='rgba(255,255,255,.06)';bx.lineWidth=.5+Math.random()*.6;
-        bx.beginPath();bx.arc(wx,wy,4+Math.random()*12,.2,Math.PI*.8);bx.stroke();
+    // ── Wide ocean channel — dense wave texture ───────────────────
+    {let chanW=COLONY_COAST_X-W;
+     for(let i=0;i<55;i++){
+        let wx=W+8+Math.random()*(chanW-16),wy=Math.random()*H;
+        bx.strokeStyle=`rgba(255,255,255,${.04+Math.random()*.05})`;bx.lineWidth=.5+Math.random()*.8;
+        bx.beginPath();bx.arc(wx,wy,5+Math.random()*18,.15,Math.PI*.75);bx.stroke();
      }
     }
     bgOK=true;
@@ -1070,6 +1082,35 @@ class ColonyCart{
     }
 }
 
+class ColonyPort{
+    constructor(x,y,name){
+        this.type='colony_port';this.x=x;this.y=y;this.r=26;this.name=name;
+    }
+    update(){}
+    draw(c){
+        let x=this.x,y=this.y;
+        // Stone quay jutting into river/ocean
+        c.fillStyle='rgba(0,0,0,.15)';c.fillRect(x-26,y+6,52,6);
+        c.fillStyle='#9A8264';c.fillRect(x-24,y-4,48,10);
+        c.fillStyle='#B09878';c.fillRect(x-24,y-4,48,3); // quay edge
+        // Godown (flat-roof riverside warehouse)
+        c.fillStyle='#C08850';c.fillRect(x-20,y-22,32,18);
+        c.fillStyle='#A06830';c.fillRect(x-20,y-22,32,4); // flat roof edge
+        c.fillStyle='rgba(40,18,5,.4)';c.fillRect(x-14,y-18,7,11);c.fillRect(x+2,y-18,7,11); // arched bays
+        // Mooring posts
+        c.fillStyle='#6A4828';c.fillRect(x-26,y-7,4,14);c.fillRect(x+22,y-7,4,14);
+        // Small boat alongside
+        c.fillStyle='#7A5838';
+        c.beginPath();c.moveTo(x-22,y+1);c.lineTo(x-6,y+1);c.lineTo(x-4,y+6);c.lineTo(x-22,y+6);c.closePath();c.fill();
+        c.fillStyle='#5A3E22';c.fillRect(x-16,y-7,2,9); // mast
+        // Port name
+        c.font='bold 8px sans-serif';c.textAlign='center';c.textBaseline='bottom';
+        c.fillStyle='rgba(255,248,225,.9)';let tw2=c.measureText(this.name).width+8;
+        c.beginPath();c.roundRect(x-tw2/2,y-34,tw2,12,3);c.fill();
+        c.fillStyle='#5A2A10';c.textBaseline='middle';c.fillText(this.name,x,y-28);
+    }
+}
+
 class ColonyRoute{
     constructor(from,to,kind){
         this.from=from;this.to=to;this.kind=kind;
@@ -1336,7 +1377,7 @@ function smk(x,y){for(let i=0;i<3;i++)S.smoke.push({x,y,vx:(Math.random()-.5)*8,
 // INIT
 // ═══════════════════════════════════════
 function resize(){
-    W=window.innerWidth*2;H=window.innerHeight*HMULT;TW=window.innerWidth*3;
+    W=window.innerWidth*2;H=window.innerHeight*HMULT;TW=window.innerWidth*4;
     cv.width=TW;cv.height=H;
     buildIsland();buildColonyIsland();renderBG();
 }
@@ -1387,13 +1428,14 @@ function initWorld(){
 }
 
 function initColony(){
-    let CX=W+90;           // colony island left edge
-    let CW=TW-W-110;       // colony usable width
+    // Entity placement starts well inside the coast
+    let CX=COLONY_COAST_X+120;  // x start for entities (inside the land)
+    let CW=TW-CX-40;            // usable width
     const cPlaced=[];
     function placeC(yMin,yMax,minD){
         minD=minD||85;
         for(let a=0;a<200;a++){
-            let x=CX+30+Math.random()*(CW-60);
+            let x=CX+Math.random()*CW;
             let y=yMin+Math.random()*(yMax-yMin);
             if(!ptIn(x,y,colonyIslandPoly))continue;
             if(cPlaced.some(p=>dd(x,y,p.x,p.y)<minD))continue;
@@ -1403,16 +1445,24 @@ function initColony(){
     }
     const wsNames=['Dhaka Weavers','Bengal Cloth Works','Murshidabad Looms','Calicut Spinners'];
     const ctyNames=['Dakshpur','Suratgarh','Kanchipur','Murshidabad','Calicutam'];
-    // Place workshops first (they are the network hubs)
-    for(let i=0;i<3;i++){let p=placeC(H*.28,H*.72,130);if(p)S.colony.workshops.push(new Workshop(p.x,p.y,wsNames[i]));}
-    // Cotton farms spread across island
-    for(let i=0;i<7;i++){let p=placeC(H*.06,H*.90,80);if(p)S.colony.farms.push(new ColonyFarm(p.x,p.y));}
+    const portNames=['Hooghly Port','Mahanadi Port'];
+    // River mouth ports (block placement near them)
+    for(let i=0;i<Math.min(2,colonyRiverMouths.length);i++){
+        let m=colonyRiverMouths[i];
+        let p=new ColonyPort(m.x+20,m.y,portNames[i]);
+        S.colony.ports.push(p);
+        cPlaced.push({x:m.x,y:m.y}); // prevent entities too close to shore/port
+    }
+    // Workshops (production hubs)
+    for(let i=0;i<3;i++){let p=placeC(H*.25,H*.75,130);if(p)S.colony.workshops.push(new Workshop(p.x,p.y,wsNames[i]));}
+    // Cotton farms
+    for(let i=0;i<7;i++){let p=placeC(H*.05,H*.92,80);if(p)S.colony.farms.push(new ColonyFarm(p.x,p.y));}
     // Colonial cities
-    for(let i=0;i<5;i++){let p=placeC(H*.08,H*.92,95);if(p)S.colony.cities.push(new ColonyCity(p.x,p.y,ctyNames[i]));}
+    for(let i=0;i<5;i++){let p=placeC(H*.06,H*.94,95);if(p)S.colony.cities.push(new ColonyCity(p.x,p.y,ctyNames[i]));}
     // AI routes: each farm → nearest workshop
     for(let f of S.colony.farms){
         if(!S.colony.workshops.length)break;
-        let ws=S.colony.workshops.reduce((best,w)=>dd(f.x,f.y,w.x,w.y)<dd(f.x,f.y,best.x,best.y)?w:best);
+        let ws=S.colony.workshops.reduce((b,w)=>dd(f.x,f.y,w.x,w.y)<dd(f.x,f.y,b.x,b.y)?w:b);
         S.colony.routes.push(new ColonyRoute(f,ws,'cotton'));
     }
     // AI routes: each workshop → 2 nearest cities
@@ -1449,10 +1499,10 @@ world.addEventListener('pointerdown',e=>{
     }
     // Colonial territory — look but don't touch
     if(ptIn(p.x,p.y,colonyIslandPoly)){
-        let allCol=[...S.colony.farms,...S.colony.workshops,...S.colony.cities];
+        let allCol=[...S.colony.farms,...S.colony.workshops,...S.colony.cities,...S.colony.ports];
         let nearest=allCol.reduce((best,e2)=>{let d=dd(p.x,p.y,e2.x,e2.y);return d<(best?dd(p.x,p.y,best.x,best.y):Infinity)?e2:best;},null);
         let name=nearest?(nearest.name||'Cotton Farm'):'the colony';
-        let typeStr=nearest?(nearest.type==='colony_farm'?'cotton farm':nearest.type==='workshop'?'textile workshop':'colonial city'):'territory';
+        let typeStr=nearest?(nearest.type==='colony_farm'?'cotton farm':nearest.type==='workshop'?'textile workshop':nearest.type==='colony_port'?'river trading port':'colonial city'):'territory';
         document.getElementById('colonyName').textContent=name;
         document.getElementById('colonyNote').textContent=`This ${typeStr} is part of ${COLONY_NAME}. Cotton is grown here, woven into fine cloth, and traded across the region.`;
         document.getElementById('colonyDlg').style.display='flex';
@@ -1818,6 +1868,7 @@ function tick(now){
     S.colony.workshops.forEach(w=>w.update(dt));
     S.colony.cities.forEach(c=>c.update(dt));
     S.colony.routes.forEach(r=>r.update(dt));
+    S.colony.ports.forEach(p=>p.update(dt));
     chkRailroad();chkPhase();chkNorthFactory();
     S.floats.forEach(f=>{f.y-=18*dt;f.life-=dt;});S.floats=S.floats.filter(f=>f.life>0);
     S.smoke.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.sz+=1.5*dt;p.life-=dt;});S.smoke=S.smoke.filter(p=>p.life>0);
@@ -1839,6 +1890,7 @@ function tick(now){
     S.colony.farms.forEach(f=>f.draw(cx));
     S.colony.workshops.forEach(w=>w.draw(cx));
     S.colony.cities.forEach(c=>c.draw(cx));
+    S.colony.ports.forEach(p=>p.draw(cx));
     // Home island draws
     S.farms.forEach(f=>f.draw(cx));
     S.factories.forEach(f=>f.draw(cx));
