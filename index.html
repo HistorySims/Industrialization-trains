@@ -362,14 +362,21 @@ class Factory{
     get woolQMax(){return [8,12,16][this.tier];}
     get warehouseMax(){return [20,32,48][this.tier];}
     get woolBid(){
-        // Bid drops when warehouse full, rises when empty;
-        // also rises with tier (larger factory needs more wool) and with hunger
+        // Base bid rises sharply with tier; larger factories must outbid smaller ones
+        let tierBase=[0,4,9][this.tier];
+        // Fullness penalty: -5 when warehouse full, 0 when half, +0 when empty
+        // (never penalizes an empty factory)
         let fullness=this.warehouse/this.warehouseMax;
-        let adj=Math.round((0.5-fullness)*6); // +3 when empty, -3 when full
-        let hungerCap=6+this.tier*2;
-        let hunger=Math.min(hungerCap,~~(this.woolHunger/4));
-        let tierBoost=[0,3,6][this.tier]; // tier 1: +3, tier 2: +6 base demand
-        return clamp(this.bBid+adj-~~(this.str/5)+hunger+tierBoost,3,22);
+        let fullnessPenalty=Math.round(Math.max(0,fullness-0.5)*10);
+        // Hunger bonus: aggressive — every 2 seconds starving adds +1, capped higher per tier
+        let hungerCap=[5,9,14][this.tier];
+        let hunger=Math.min(hungerCap,~~(this.woolHunger/2));
+        // Hard floor: when warehouse is empty, never bid below a minimum per tier
+        let emptyFloor=[8,12,16][this.tier];
+        let raw=this.bBid+tierBase-fullnessPenalty+hunger;
+        // Enforce floor when warehouse is empty or near-empty (< 2 units)
+        if(this.warehouse<2) raw=Math.max(raw,emptyFloor);
+        return clamp(raw,5,24);
     }
     get clothAsk(){
         // What factory charges for cloth — higher when scarce, lower when abundant
@@ -454,14 +461,14 @@ class Factory{
         c.fillStyle='#8B7355';c.fillRect(this.x+24,this.y-10,28,22);
         c.fillStyle='#6B5540';c.fillRect(this.x+24,this.y-14,28,4);
         // Warehouse fill level
-        let fillH=Math.round((this.warehouse/WAREHOUSE_MAX)*18);
+        let fillH=Math.round((this.warehouse/this.warehouseMax)*18);
         if(fillH>0){
             c.fillStyle='#5B6DAF';
             c.fillRect(this.x+26,this.y+10-fillH,24,fillH);
         }
         // Warehouse label
         c.font='bold 8px sans-serif';c.fillStyle='#fff';c.textAlign='center';c.textBaseline='middle';
-        c.fillText(this.warehouse+'/'+WAREHOUSE_MAX,this.x+38,this.y+1);
+        c.fillText(this.warehouse+'/'+this.warehouseMax,this.x+38,this.y+1);
         // Processing indicator
         if(this.woolQ>0){
             c.fillStyle='#f39c12';c.font='bold 8px sans-serif';
@@ -806,20 +813,19 @@ class Train{
         let other=stn===r.from?r.to:r.from;
         // Directional flow: pick up only cargo heading toward its sink via the other station
         let wd=S.rail._woolDist,cd=S.rail._clothDist;
-        let myW=wd?.get(stn)??Infinity, otW=wd?.get(other)??Infinity;
-        let myC=cd?.get(stn)??Infinity, otC=cd?.get(other)??Infinity;
-        let woolFwd=otW<myW, clothFwd=otC<myC;
-        // Always drop all cargo at this station first
+        let myW=wd?.get(stn)??Infinity, otW2=wd?.get(other)??Infinity;
+        let myC=cd?.get(stn)??Infinity, otC2=cd?.get(other)??Infinity;
+        let woolFwd=otW2<myW, clothFwd=otC2<myC;
+        // Count pre-existing cargo at station BEFORE dropping our load
+        let preW=stn.cargoQ.filter(it=>it.type==='wool').length;
+        let preC=stn.cargoQ.filter(it=>it.type==='cloth').length;
+        // Drop all cargo at this station
         while(this.cargo.length>0) stn.cargoQ.push(this.cargo.shift());
-        // Equalize: pick up half the surplus over the other station, capped at capacity
-        let nStnW=stn.cargoQ.filter(it=>it.type==='wool').length;
-        let nStnC=stn.cargoQ.filter(it=>it.type==='cloth').length;
-        let nOtW=other.cargoQ.filter(it=>it.type==='wool').length;
-        let nOtC=other.cargoQ.filter(it=>it.type==='cloth').length;
-        let pickW=woolFwd?Math.min(TRAIN_CAP,Math.max(0,Math.ceil((nStnW-nOtW)/2))):0;
-        let pickC=clothFwd?Math.min(TRAIN_CAP,Math.max(0,Math.ceil((nStnC-nOtC)/2))):0;
+        // Pick up half of the pre-existing count (forward-flowing types only, unlimited capacity)
+        let pickW=woolFwd?Math.floor(preW/2):0;
+        let pickC=clothFwd?Math.floor(preC/2):0;
         let wPk=0,cPk=0,idx=0;
-        while(this.cargo.length<TRAIN_CAP&&idx<stn.cargoQ.length){
+        while(idx<stn.cargoQ.length){
             let it=stn.cargoQ[idx];
             if(it.type==='wool'&&wPk<pickW){this.cargo.push(stn.cargoQ.splice(idx,1)[0]);wPk++;}
             else if(it.type==='cloth'&&cPk<pickC){this.cargo.push(stn.cargoQ.splice(idx,1)[0]);cPk++;}
@@ -830,6 +836,35 @@ class Train{
         c.save();c.translate(this.x,this.y);
         let ang=this.route.ang+(this.dir===-1?Math.PI:0);
         c.rotate(ang);
+        // Trailing freight cars (drawn behind engine, in the -x direction in local space)
+        let nCars=this.cargo.length;
+        if(nCars>0){
+            let woolCount=this.cargo.filter(it=>it.type==='wool').length;
+            let clothCount=nCars-woolCount;
+            // Group: draw one car per type carried, showing count
+            let carW=18,carGap=4,carX=-14;
+            // Up to 2 car types shown; each shows its count
+            let carGroups=[];
+            if(woolCount>0) carGroups.push({col:'#7a5c2a',txt:''+woolCount,label:'W'});
+            if(clothCount>0) carGroups.push({col:'#4A5A8A',txt:''+clothCount,label:'C'});
+            for(let i=0;i<carGroups.length;i++){
+                let cx2=carX-(i*(carW+carGap));
+                let g=carGroups[i];
+                // Car body
+                c.fillStyle='rgba(0,0,0,0.18)';c.fillRect(cx2-carW+1,3,carW,4);
+                c.fillStyle=g.col;c.fillRect(cx2-carW,-5,carW,10);
+                // Cargo fill indicator
+                c.fillStyle='rgba(255,255,255,0.15)';c.fillRect(cx2-carW+1,-4,carW-2,8);
+                // Count label
+                c.fillStyle='#fff';c.font='bold 8px sans-serif';c.textAlign='center';c.textBaseline='middle';
+                c.fillText(g.txt,cx2-carW/2,0);
+                // Wheels
+                c.fillStyle='#222';
+                [cx2-carW+3,cx2-3].forEach(wx=>{c.beginPath();c.arc(wx,5,2.5,0,Math.PI*2);c.fill();});
+                // Coupler
+                c.fillStyle='#555';c.fillRect(cx2-carW-2,-1,3,2);
+            }
+        }
         // Shadow
         c.fillStyle='rgba(0,0,0,0.22)';c.fillRect(-14,3,28,5);
         // Boiler
@@ -839,11 +874,6 @@ class Train{
         // Chimney
         c.fillStyle='#222';c.fillRect(8,-9,5,5);
         c.fillStyle='#333';c.fillRect(7,-11,7,2);
-        // Cargo
-        if(this.cargo.length>0){
-            c.fillStyle='#8B6B4A';c.fillRect(-11,-4,14,7);
-            c.fillStyle='#fff';c.font='bold 8px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.cargo.length,-4,1);
-        }
         // Wheels
         c.fillStyle='#222';
         [-8,4].forEach(wx=>{c.beginPath();c.arc(wx,5,3,0,Math.PI*2);c.fill();});
@@ -926,7 +956,7 @@ class FeederRoute{
         let isCloth=this.kind==='factory_station'||this.kind==='station_city';
         // Parallel offset for station_factory / factory_station pairs on same link
         // Both use +3.5: direction reversal of factory_station naturally lands it on the opposite side
-        let myOffset=(this.kind==='station_factory'||this.kind==='factory_station')&&this._paired?3.5:0;
+        let myOffset=(this.kind==='station_factory'||this.kind==='factory_station')&&this._paired?11:0;
         let x1=this.from.x,y1=this.from.y,x2=this.to.x,y2=this.to.y;
         if(myOffset!==0){
             let px=-(y2-y1)/this.dist*myOffset,py=(x2-x1)/this.dist*myOffset;
