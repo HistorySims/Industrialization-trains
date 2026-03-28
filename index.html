@@ -1149,7 +1149,7 @@ window.addEventListener('pointerup',e=>{
         }else if(S.rail.unlocked&&S.dragFrom){
             // Farm → Station feeder
             let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
-            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='farm_station'&&r.from===S.dragFrom&&r.to===hs);if(!ex)openStationBuild(S.dragFrom,hs,'farm_station');}
+            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='farm_station'&&r.from===S.dragFrom&&r.to===hs);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,hs,'farm_station');}
         }
     }else if(S.dragType==='cloth'){
         // Direct cloth route to city, OR via station (factory_station)
@@ -1159,7 +1159,7 @@ window.addEventListener('pointerup',e=>{
             if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tc,'cloth');
         }else if(S.rail.unlocked&&S.dragFrom){
             let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
-            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='factory_station'&&r.from===S.dragFrom&&r.to===hs);if(!ex)openStationBuild(S.dragFrom,hs,'factory_station');}
+            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='factory_station'&&r.from===S.dragFrom&&r.to===hs);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,hs,'factory_station');}
         }
     }else if(S.dragType==='station'){
         // Station → Station: lay track
@@ -1175,9 +1175,9 @@ window.addEventListener('pointerup',e=>{
             if(!ex){S.rail.trackRoutes.push(new TrackRoute(S.dragFrom,hs2));computeRailFlow();}
         }else{
             let tf=hitEntity(p,S.factories);
-            if(tf){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_factory'&&r.from===S.dragFrom&&r.to===tf);if(!ex)openStationBuild(S.dragFrom,tf,'station_factory');return;}
+            if(tf){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_factory'&&r.from===S.dragFrom&&r.to===tf);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,tf,'station_factory');return;}
             let tc=hitEntity(p,S.cities)||hitEntity(p,S.ports);
-            if(tc){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_city'&&r.from===S.dragFrom&&r.to===tc);if(!ex)openStationBuild(S.dragFrom,tc,'station_city');}
+            if(tc){let ex=S.rail.feederRoutes.find(r=>r.kind==='station_city'&&r.from===S.dragFrom&&r.to===tc);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,tc,'station_city');}
         }
     }
     S.dragFrom=null;S.dragType=null;
