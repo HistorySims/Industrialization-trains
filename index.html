@@ -811,28 +811,15 @@ class Train{
         if(!atEnd)return;
         let stn=this.p<0.5?r.from:r.to;
         let other=stn===r.from?r.to:r.from;
-        // Directional flow: pick up only cargo heading toward its sink via the other station
-        let wd=S.rail._woolDist,cd=S.rail._clothDist;
-        let myW=wd?.get(stn)??Infinity, otW2=wd?.get(other)??Infinity;
-        let myC=cd?.get(stn)??Infinity, otC2=cd?.get(other)??Infinity;
         // Count pre-existing cargo at station BEFORE dropping our load
         let preW=stn.cargoQ.filter(it=>it.type==='wool').length;
         let preC=stn.cargoQ.filter(it=>it.type==='cloth').length;
         // Drop all cargo at this station
         while(this.cargo.length>0) stn.cargoQ.push(this.cargo.shift());
-        // Determine forward direction; when equidistant (both stations have same sink proximity,
-        // e.g. both have direct factory feeders), fall back to queue-size: relay from heavier side
-        let woolFwd;
-        if(otW2<myW) woolFwd=true;
-        else if(myW<otW2) woolFwd=false;
-        else{let curW=stn.cargoQ.filter(it=>it.type==='wool').length;woolFwd=curW>other.cargoQ.filter(it=>it.type==='wool').length;}
-        let clothFwd;
-        if(otC2<myC) clothFwd=true;
-        else if(myC<otC2) clothFwd=false;
-        else{let curC=stn.cargoQ.filter(it=>it.type==='cloth').length;clothFwd=curC>other.cargoQ.filter(it=>it.type==='cloth').length;}
-        // Pick up half of the pre-existing count (forward-flowing types only, unlimited capacity)
-        let pickW=woolFwd?Math.floor(preW/2):0;
-        let pickC=clothFwd?Math.floor(preC/2):0;
+        // Take half of what was already here (before our drop) — no directional logic needed;
+        // trains naturally distribute cargo by always halving whatever they find
+        let pickW=Math.floor(preW/2);
+        let pickC=Math.floor(preC/2);
         let wPk=0,cPk=0,idx=0;
         while(idx<stn.cargoQ.length){
             let it=stn.cargoQ[idx];
