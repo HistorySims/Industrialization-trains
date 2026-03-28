@@ -218,9 +218,10 @@ function traceColonyPoly(c){
 // Wide ocean channel between W and the coast.
 // ═══════════════════════════════════════
 let colonyRiverMouths=[]; // [{x,y}] set by buildColonyIsland, used by renderBG+initColony
-const COLONY_COAST_X=W+300; // nominal coast baseline — ocean gap ≈ 300px
+let COLONY_COAST_X=0; // set in buildColonyIsland() after W is known
 
 function buildColonyIsland(){
+    COLONY_COAST_X=W+300;
     let seedL=147;function scl(){seedL=(seedL*16807)%2147483647;return(seedL-1)/2147483646;}
     const segs=90;
     // River mouth t-values along coast (0=top, 1=bottom)
