@@ -86,6 +86,14 @@ button:disabled{opacity:.4;cursor:default}
 <button id="smClose" style="margin-top:8px;width:100%">Close</button>
 </div>
 
+<div id="colonyDlg" class="panel modal" style="width:320px">
+<h2 style="color:#7A5A2A">&#127807; Colonial Territory</h2>
+<p id="colonyName" style="font-weight:bold;font-size:1rem;margin-bottom:6px;color:#5A3A10"></p>
+<p id="colonyNote" style="text-align:left;font-size:.9rem;line-height:1.45;color:#666;margin-bottom:6px"></p>
+<p style="text-align:left;font-size:.82rem;color:#888;font-style:italic">You cannot interact with foreign territories.</p>
+<button id="colonyClose" class="go" style="margin-top:8px;width:100%">Close</button>
+</div>
+
 <script>
 // ═══════════════════════════════════════
 // CONFIG
@@ -101,11 +109,11 @@ const TRAIN_SPD=80, TRAIN_CAP=6, STATION_COST=100;
 const cv=document.getElementById('c');
 const cx=cv.getContext('2d',{alpha:false});
 const world=document.getElementById('world');
-let W,H;
+let W,H,TW; // W=home island width (2×screen), TW=total canvas (3×screen)
 
 const bg=document.createElement('canvas');
 const bx=bg.getContext('2d');
-let bgOK=false, islandPoly=[];
+let bgOK=false, islandPoly=[], colonyIslandPoly=[];
 
 const S={
     cash:50,t:0,day:1,done:false,
@@ -116,7 +124,8 @@ const S={
     selRoute:null,pending:null,
     placingStation:false,
     farmDoublings:0,northFactory:false,
-    rail:{unlocked:false,announced:false,stations:[],trains:[],trackRoutes:[],feederRoutes:[]}
+    rail:{unlocked:false,announced:false,stations:[],trains:[],trackRoutes:[],feederRoutes:[]},
+    colony:{farms:[],workshops:[],cities:[],routes:[]}
 };
 
 // ═══════════════════════════════════════
@@ -197,15 +206,55 @@ function tracePoly(c){
     for(let i=1;i<islandPoly.length;i++) c.lineTo(islandPoly[i].x,islandPoly[i].y);
     c.closePath();
 }
+function traceColonyPoly(c){
+    c.beginPath();c.moveTo(colonyIslandPoly[0].x,colonyIslandPoly[0].y);
+    for(let i=1;i<colonyIslandPoly.length;i++) c.lineTo(colonyIslandPoly[i].x,colonyIslandPoly[i].y);
+    c.closePath();
+}
+
+// ═══════════════════════════════════════
+// COLONIAL ISLAND — wide, flat, subcontinental
+// Occupies rightmost third of canvas (W+gap to TW)
+// ═══════════════════════════════════════
+function buildColonyIsland(){
+    let CX=W+90;           // island left edge
+    let CW=TW-W-110;       // island width
+    let seedR=53;function scr(){seedR=(seedR*16807)%2147483647;return(seedR-1)/2147483646;}
+    let seedL=147;function scl(){seedL=(seedL*16807)%2147483647;return(seedL-1)/2147483646;}
+    const segs=70;
+    const right=[];
+    for(let i=0;i<=segs;i++){
+        let t=i/segs;
+        let y=H*0.05+H*0.90*t;
+        let retreat=CW*(0.025+0.04*Math.sin(t*3.8+0.7)+0.015*Math.sin(t*7.2+1.4));
+        if(t<0.06) retreat+=CW*0.07*(1-t/0.06);   // round off north tip
+        if(t>0.94) retreat+=CW*0.07*((t-0.94)/0.06);
+        let jag=CW*0.006;
+        right.push({x:clamp(CX+CW-retreat+scr()*jag*2-jag,CX+CW*0.35,TW-5),y});
+    }
+    const left=[];
+    for(let i=0;i<=segs;i++){
+        let t=i/segs;
+        let y=H*0.05+H*0.90*t;
+        let protrude=CW*(0.018+0.03*Math.sin(t*3.1+1.2)+0.012*Math.sin(t*5.5+0.8));
+        if(t<0.06) protrude+=CW*0.06*(1-t/0.06);
+        if(t>0.94) protrude+=CW*0.06*((t-0.94)/0.06);
+        let jag=CW*0.005;
+        left.push({x:clamp(CX+protrude+scl()*jag*2-jag,W+50,CX+CW*0.55),y});
+    }
+    colonyIslandPoly=[];
+    for(let p of right) colonyIslandPoly.push(p);
+    for(let i=left.length-1;i>=0;i--) colonyIslandPoly.push(left[i]);
+}
 
 // ═══════════════════════════════════════
 // BACKGROUND
 // ═══════════════════════════════════════
 function renderBG(){
-    bg.width=W;bg.height=H;
+    bg.width=TW;bg.height=H;
     let wg=bx.createLinearGradient(0,0,0,H);
     wg.addColorStop(0,'#4A6B85');wg.addColorStop(.5,'#5A7B95');wg.addColorStop(1,'#6A8BA5');
-    bx.fillStyle=wg;bx.fillRect(0,0,W,H);
+    bx.fillStyle=wg;bx.fillRect(0,0,TW,H);
     for(let i=0;i<100;i++){
         bx.strokeStyle='rgba(255,255,255,.05)';bx.lineWidth=.4+Math.random()*.5;
         bx.beginPath();bx.arc(Math.random()*W,Math.random()*H,5+Math.random()*14,.2,Math.PI*.8);bx.stroke();
@@ -289,6 +338,73 @@ function renderBG(){
         // snow cap
         bx.beginPath();bx.moveTo(px,yP-ph);bx.lineTo(px-pw*0.22,yP-ph*0.55);bx.lineTo(px+pw*0.22,yP-ph*0.55);bx.closePath();
         bx.fillStyle='rgba(240,240,238,0.52)';bx.fill();
+     }
+    }
+    // ── Colonial island ──────────────────────────────────────────
+    // Base land fill — warm gradient (ochre/golden-green/dusty brown)
+    let clg=bx.createLinearGradient(W,0,TW,H);
+    clg.addColorStop(0,'#B8A060');clg.addColorStop(.3,'#A09050');
+    clg.addColorStop(.6,'#8EA864');clg.addColorStop(1,'#9AB060');
+    traceColonyPoly(bx);bx.fillStyle=clg;bx.fill();
+    traceColonyPoly(bx);bx.lineWidth=6;bx.strokeStyle='rgba(160,130,70,.5)';bx.stroke();
+    traceColonyPoly(bx);bx.lineWidth=2;bx.strokeStyle='rgba(100,80,30,.4)';bx.stroke();
+    bx.save();traceColonyPoly(bx);bx.clip();
+    // Dusty ochre/dry patches across the land
+    let csPal=[[178,155,80],[195,168,90],[155,140,65],[185,160,75],[170,150,60]];
+    for(let i=0;i<50;i++){
+        let fx=W+80+Math.random()*(TW-W-130),fy=H*.05+Math.random()*H*.9;
+        if(!ptIn(fx,fy,colonyIslandPoly))continue;
+        let fw=25+Math.random()*80,fh=12+Math.random()*40;
+        let [r,g,b]=csPal[~~(Math.random()*csPal.length)];
+        bx.save();bx.translate(fx,fy);bx.rotate((Math.random()-.5)*.4);
+        bx.fillStyle=`rgba(${r},${g},${b},${.15+Math.random()*.2})`;bx.fillRect(-fw/2,-fh/2,fw,fh);
+        bx.restore();
+    }
+    // Warm scrub/bushes (dusty green)
+    for(let i=0;i<30;i++){
+        let tx=W+90+Math.random()*(TW-W-140),ty=H*.06+Math.random()*H*.88;
+        if(!ptIn(tx,ty,colonyIslandPoly))continue;
+        for(let j=0;j<2+~~(Math.random()*4);j++){
+            let x=tx+Math.random()*18-9,y=ty+Math.random()*12-6,r=4+Math.random()*9;
+            let g=80+~~(Math.random()*30);
+            bx.fillStyle=`rgba(${g+20},${g+30},${g-10},${.35+Math.random()*.25})`;
+            bx.beginPath();bx.arc(x,y,r,0,Math.PI*2);bx.fill();
+        }
+    }
+    // Sandy beach fringe
+    traceColonyPoly(bx);bx.lineWidth=10;bx.strokeStyle='rgba(220,198,140,.5)';bx.stroke();
+    traceColonyPoly(bx);bx.lineWidth=4;bx.strokeStyle='rgba(235,215,160,.35)';bx.stroke();
+    // Flat gentle relief (no dramatic hills, just subtle warmth)
+    for(let i=0;i<12;i++){
+        let hx=W+100+Math.random()*(TW-W-150),hy=H*.1+Math.random()*H*.8;
+        let rx=60+Math.random()*140,ry=8+Math.random()*18;
+        let hg=bx.createRadialGradient(hx,hy-ry*.3,0,hx,hy,rx*.9);
+        hg.addColorStop(0,'rgba(255,220,150,.05)');hg.addColorStop(.5,'rgba(255,210,130,.02)');hg.addColorStop(1,'rgba(0,0,0,.03)');
+        bx.fillStyle=hg;bx.beginPath();bx.ellipse(hx,hy,rx,ry,0,0,Math.PI*2);bx.fill();
+    }
+    // Rivers/delta channels — wide flat deltas are characteristic
+    {let seedRv=37;function srv(){seedRv=(seedRv*16807)%2147483647;return(seedRv-1)/2147483646;}
+     let CX2=W+90,CW2=TW-W-110;
+     for(let ri=0;ri<3;ri++){
+        let t=0.25+ri*0.25;
+        let y0=H*0.05+H*0.90*t;
+        let xL=CX2+CW2*(0.1+srv()*0.3);
+        let xR=xL+CW2*(0.15+srv()*0.2);
+        let ySrc=y0-H*0.08;
+        let xMid=(xL+xR)/2+(srv()*2-1)*CW2*0.05;
+        bx.beginPath();bx.moveTo(xMid,ySrc);bx.quadraticCurveTo(xMid,y0-H*0.02,xL,y0);
+        bx.strokeStyle='rgba(80,140,180,0.45)';bx.lineWidth=4+ri;bx.lineCap='round';bx.stroke();
+        bx.beginPath();bx.moveTo(xMid,ySrc);bx.quadraticCurveTo(xMid,y0-H*0.02,xL,y0);
+        bx.strokeStyle='rgba(160,210,240,0.35)';bx.lineWidth=2+ri*.5;bx.stroke();
+     }
+    }
+    bx.restore();
+    // ── Separating ocean — add a few extra wave curls in the channel ──
+    {let CX2=W+90;
+     for(let i=0;i<18;i++){
+        let wx=W+5+Math.random()*(CX2-W-5),wy=Math.random()*H;
+        bx.strokeStyle='rgba(255,255,255,.06)';bx.lineWidth=.5+Math.random()*.6;
+        bx.beginPath();bx.arc(wx,wy,4+Math.random()*12,.2,Math.PI*.8);bx.stroke();
      }
     }
     bgOK=true;
@@ -789,6 +905,189 @@ class Route{
 // ═══════════════════════════════════════
 // RAILROAD ENTITIES
 // ═══════════════════════════════════════
+// COLONIAL ENTITIES — autonomous, non-interactive
+// ═══════════════════════════════════════
+const COLONY_NAME='The Bengal Territories';
+
+class ColonyFarm{
+    constructor(x,y){
+        this.type='colony_farm';this.x=x;this.y=y;this.r=22;
+        this.cottonQ=6+~~(Math.random()*6);this.maxCotton=18;this.regenT=0;
+    }
+    update(dt){
+        if(this.cottonQ<this.maxCotton){this.regenT+=dt;if(this.regenT>2.8){this.cottonQ++;this.regenT=0;}}
+    }
+    draw(c){
+        let x=this.x,y=this.y;
+        // Cotton plants — small green bushes with white bolls
+        let plotPts=[{dx:-18,dy:8},{dx:13,dy:10},{dx:1,dy:14},{dx:-8,dy:11},{dx:20,dy:7}];
+        for(let p of plotPts){
+            c.fillStyle='#5A7E32';c.beginPath();c.arc(x+p.dx,y+p.dy,5,0,Math.PI*2);c.fill();
+            c.fillStyle='#F0EDE8';c.beginPath();c.arc(x+p.dx+1,y+p.dy-2,2,0,Math.PI*2);c.fill();
+        }
+        // Hut walls — warm mud/clay
+        c.fillStyle='#B87846';c.fillRect(x-11,y-9,24,15);
+        // Thatched dome roof
+        c.fillStyle='#8A5A24';c.beginPath();c.ellipse(x+1,y-9,15,8,0,Math.PI,0,true);c.fill();
+        c.fillStyle='#A06C30';c.beginPath();c.ellipse(x+1,y-9,15,8,0,0,Math.PI);c.fill();
+        // Thatch texture
+        c.strokeStyle='rgba(50,25,5,.2)';c.lineWidth=1;
+        for(let i=-10;i<=10;i+=4){c.beginPath();c.moveTo(x+i,y-9);c.lineTo(x+i+2,y-2);c.stroke();}
+        // Door
+        c.fillStyle='#5A3015';c.fillRect(x-2,y-3,6,6);
+        // Cotton stock badge
+        if(this.cottonQ>0){
+            c.fillStyle='#F0EDE8';c.beginPath();c.arc(x-15,y-16,8,0,Math.PI*2);c.fill();
+            c.strokeStyle='rgba(140,100,50,.4)';c.lineWidth=1;c.stroke();
+            c.fillStyle='#5A3A10';c.font='bold 8px sans-serif';c.textAlign='center';c.textBaseline='middle';
+            c.fillText(this.cottonQ,x-15,y-16);
+        }
+    }
+}
+
+class Workshop{
+    constructor(x,y,name){
+        this.type='workshop';this.x=x;this.y=y;this.r=32;
+        this.name=name;this.cottonQ=0;this.clothQ=0;this.maxCloth=16;
+        this.pt=0;this.procTime=3.0;this.clothAsk=7+~~(Math.random()*3);
+    }
+    get busy(){return this.cottonQ>0&&this.clothQ<this.maxCloth;}
+    update(dt){
+        if(this.busy){this.pt+=dt;if(this.pt>=this.procTime){this.pt=0;this.cottonQ--;this.clothQ=Math.min(this.maxCloth,this.clothQ+1);}}
+        else this.pt=0;
+    }
+    draw(c){
+        let x=this.x,y=this.y;
+        // Shadow
+        c.fillStyle='rgba(0,0,0,0.16)';c.fillRect(x-34,y+7,68,7);
+        // Main body — low, wide, terracotta
+        c.fillStyle='#C07248';c.fillRect(x-32,y-10,64,20);
+        // Slightly sloped roof (not peaked — flat with gentle slope)
+        c.fillStyle='#A85C36';
+        c.beginPath();c.moveTo(x-34,y-10);c.lineTo(x-28,y-17);c.lineTo(x+28,y-17);c.lineTo(x+34,y-10);c.fill();
+        c.strokeStyle='#8A4828';c.lineWidth=1.5;c.beginPath();c.moveTo(x-28,y-17);c.lineTo(x+28,y-17);c.stroke();
+        // Open bays on sides — dark interior
+        c.fillStyle='rgba(40,18,5,.45)';c.fillRect(x-30,y-9,14,18);c.fillRect(x+16,y-9,14,18);
+        // Visible looms — wooden rectangular frames inside
+        c.strokeStyle='#6A4020';c.lineWidth=1.5;
+        for(let i=0;i<4;i++){let lx=x-24+i*12;c.strokeRect(lx,y-8,9,14);c.beginPath();c.moveTo(lx,y-1);c.lineTo(lx+9,y-1);c.stroke();}
+        // Fabric strips hanging from roofline — saffron, indigo, vermillion
+        let strips=['#F09010','#2A1A7A','#CC2222','#F09010','#2A1A7A','#CC2222'];
+        for(let i=0;i<6;i++){c.fillStyle=strips[i];c.fillRect(x-27+i*10,y-10,7,4);}
+        // Workshop name badge
+        c.font='bold 7px sans-serif';let tw2=c.measureText(this.name).width+8;
+        c.fillStyle='rgba(255,248,225,.92)';c.beginPath();c.roundRect(x-tw2/2,y-30,tw2,12,3);c.fill();
+        c.fillStyle='#5A2A10';c.textAlign='center';c.textBaseline='middle';c.fillText(this.name,x,y-24);
+        // Cloth out badge (blue)
+        if(this.clothQ>0){
+            c.fillStyle='#5B6DAF';c.beginPath();c.arc(x+38,y-8,9,0,Math.PI*2);c.fill();
+            c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.clothQ,x+38,y-8);
+        }
+        // Cotton in badge (amber)
+        if(this.cottonQ>0){
+            c.fillStyle='#C8922A';c.beginPath();c.arc(x-38,y-8,9,0,Math.PI*2);c.fill();
+            c.fillStyle='#fff';c.font='bold 9px sans-serif';c.fillText(this.cottonQ,x-38,y-8);
+        }
+        // Processing progress bar
+        if(this.busy){
+            let pct=this.pt/this.procTime;
+            c.fillStyle='rgba(0,0,0,.2)';c.fillRect(x-22,y+13,44,3);
+            c.fillStyle='#F09010';c.fillRect(x-22,y+13,Math.round(pct*44),3);
+        }
+    }
+}
+
+class ColonyCity{
+    constructor(x,y,name){
+        this.type='colony_city';this.x=x;this.y=y;this.r=28;
+        this.name=name;this.clothBid=11+~~(Math.random()*4);this.supply=0;
+    }
+    get currentBid(){return Math.max(5,Math.round(this.clothBid-this.supply*1.2));}
+    update(dt){if(this.supply>0)this.supply=Math.max(0,this.supply-0.05*dt);}
+    draw(c){
+        let x=this.x,y=this.y;
+        // Ground shadow
+        c.fillStyle='rgba(0,0,0,.12)';c.beginPath();c.ellipse(x,y+16,32,7,0,0,Math.PI*2);c.fill();
+        // Back buildings — flat-roofed sandstone
+        c.fillStyle='#D4A870';c.fillRect(x-24,y-20,20,24);c.fillStyle='#B8906A';c.fillRect(x-24,y-20,20,3);
+        c.fillStyle='#D4A870';c.fillRect(x+2,y-16,22,20);c.fillStyle='#B8906A';c.fillRect(x+2,y-16,22,3);
+        // Front buildings
+        c.fillStyle='#E0B882';c.fillRect(x-20,y-8,18,20);c.fillStyle='#C8A060';c.fillRect(x-20,y-8,18,3);
+        c.fillStyle='#E0B882';c.fillRect(x+2,y-5,16,17);c.fillStyle='#C8A060';c.fillRect(x+2,y-5,16,3);
+        // Minaret — thin tapered tower
+        c.fillStyle='#D8C0A0';c.fillRect(x+28,y-28,8,36);c.fillStyle='#C4AA88';c.fillRect(x+26,y-28,12,3);
+        // Dome atop minaret
+        c.fillStyle='#E8D0A8';c.beginPath();c.arc(x+32,y-28,7,Math.PI,0);c.fill();
+        c.strokeStyle='rgba(150,110,60,.4)';c.lineWidth=1;c.stroke();
+        // Windows
+        c.fillStyle='rgba(80,50,20,.45)';c.fillRect(x-14,y-4,3,5);c.fillRect(x+6,y-3,3,5);
+        // City name
+        c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='top';
+        c.fillStyle='rgba(0,0,0,.4)';c.fillText(this.name,x+1,y+13);
+        c.fillStyle='#4A2A08';c.fillText(this.name,x,y+12);
+        // Cloth price badge
+        let cb='$'+this.currentBid;c.font='bold 11px sans-serif';let cbw=c.measureText(cb).width+8;
+        c.fillStyle='rgba(220,225,245,.9)';c.beginPath();c.roundRect(x-cbw/2,y-44,cbw,14,3);c.fill();
+        c.strokeStyle='#5B6DAF';c.lineWidth=1;c.stroke();
+        c.fillStyle='#5B6DAF';c.textAlign='center';c.textBaseline='middle';c.fillText(cb,x,y-37);
+    }
+}
+
+class ColonyCart{
+    constructor(route){
+        this.route=route;
+        this.p=Math.random()*.8;this.dir=1;this.carrying=false;this.cargo=0;
+    }
+    get x(){return mix(this.route.from.x,this.route.to.x,this.p);}
+    get y(){return mix(this.route.from.y,this.route.to.y,this.p);}
+    update(dt){
+        let spd=CART_SPD/this.route.dist;
+        this.p+=dt*spd*this.dir;
+        if(this.p>=1){
+            this.p=1;this.dir=-1;
+            if(this.route.kind==='cotton'){this.route.to.cottonQ=Math.min(this.route.to.cottonQ+this.cargo,30);}
+            else{this.route.to.supply=Math.min(this.route.to.supply+this.cargo*0.5,20);}
+            this.cargo=0;this.carrying=false;
+        }else if(this.p<=0){
+            this.p=0;this.dir=1;
+            if(this.route.kind==='cotton'){let t=Math.min(4,this.route.from.cottonQ);this.route.from.cottonQ-=t;this.cargo=t;this.carrying=t>0;}
+            else{let t=Math.min(4,this.route.from.clothQ);this.route.from.clothQ-=t;this.cargo=t;this.carrying=t>0;}
+        }
+    }
+    draw(c){
+        let ang=Math.atan2(this.route.to.y-this.route.from.y,this.route.to.x-this.route.from.x)+(this.dir===-1?Math.PI:0);
+        c.save();c.translate(this.x,this.y);c.rotate(ang);
+        c.fillStyle='rgba(0,0,0,.14)';c.fillRect(-7,3,14,5);
+        c.fillStyle=this.route.kind==='cotton'?'#C8902A':'#5A6A9A';c.fillRect(-7,-4,14,8);
+        if(this.carrying&&this.cargo>0){
+            c.fillStyle=this.route.kind==='cotton'?'#F0EAD8':'#8A9AC8';
+            c.beginPath();c.arc(0,0,3.5,0,Math.PI*2);c.fill();
+        }
+        c.fillStyle='#1A0E05';
+        c.beginPath();c.arc(-4,4,2.5,0,Math.PI*2);c.fill();
+        c.beginPath();c.arc(4,4,2.5,0,Math.PI*2);c.fill();
+        c.restore();
+    }
+}
+
+class ColonyRoute{
+    constructor(from,to,kind){
+        this.from=from;this.to=to;this.kind=kind;
+        this.dist=dd(from.x,from.y,to.x,to.y);
+        this.carts=[new ColonyCart(this)];
+        // Stagger a second cart on longer routes
+        if(this.dist>120){let c2=new ColonyCart(this);c2.p=clamp(c2.p+0.4,0,0.99);this.carts.push(c2);}
+    }
+    update(dt){this.carts.forEach(ct=>ct.update(dt));}
+    draw(c){
+        c.beginPath();c.moveTo(this.from.x,this.from.y);c.lineTo(this.to.x,this.to.y);
+        c.strokeStyle=this.kind==='cotton'?'rgba(175,128,55,.38)':'rgba(65,75,135,.38)';
+        c.lineWidth=1.5;c.setLineDash([4,7]);c.stroke();c.setLineDash([]);
+        this.carts.forEach(ct=>ct.draw(c));
+    }
+}
+
+// ═══════════════════════════════════════
 class Station{
     constructor(x,y){this.type='station';this.x=x;this.y=y;this.r=22;this.cargoQ=[];}
 }
@@ -1037,9 +1336,9 @@ function smk(x,y){for(let i=0;i<3;i++)S.smoke.push({x,y,vx:(Math.random()-.5)*8,
 // INIT
 // ═══════════════════════════════════════
 function resize(){
-    W=window.innerWidth*2;H=window.innerHeight*HMULT;
-    cv.width=W;cv.height=H;
-    buildIsland();renderBG();
+    W=window.innerWidth*2;H=window.innerHeight*HMULT;TW=window.innerWidth*3;
+    cv.width=TW;cv.height=H;
+    buildIsland();buildColonyIsland();renderBG();
 }
 
 function initWorld(){
@@ -1084,6 +1383,43 @@ function initWorld(){
 
     // Start scrolled to bottom-center
     setTimeout(()=>world.scrollTo(W/2-window.innerWidth/2,H),120);
+    initColony();
+}
+
+function initColony(){
+    let CX=W+90;           // colony island left edge
+    let CW=TW-W-110;       // colony usable width
+    const cPlaced=[];
+    function placeC(yMin,yMax,minD){
+        minD=minD||85;
+        for(let a=0;a<200;a++){
+            let x=CX+30+Math.random()*(CW-60);
+            let y=yMin+Math.random()*(yMax-yMin);
+            if(!ptIn(x,y,colonyIslandPoly))continue;
+            if(cPlaced.some(p=>dd(x,y,p.x,p.y)<minD))continue;
+            cPlaced.push({x,y});return{x,y};
+        }
+        return null;
+    }
+    const wsNames=['Dhaka Weavers','Bengal Cloth Works','Murshidabad Looms','Calicut Spinners'];
+    const ctyNames=['Dakshpur','Suratgarh','Kanchipur','Murshidabad','Calicutam'];
+    // Place workshops first (they are the network hubs)
+    for(let i=0;i<3;i++){let p=placeC(H*.28,H*.72,130);if(p)S.colony.workshops.push(new Workshop(p.x,p.y,wsNames[i]));}
+    // Cotton farms spread across island
+    for(let i=0;i<7;i++){let p=placeC(H*.06,H*.90,80);if(p)S.colony.farms.push(new ColonyFarm(p.x,p.y));}
+    // Colonial cities
+    for(let i=0;i<5;i++){let p=placeC(H*.08,H*.92,95);if(p)S.colony.cities.push(new ColonyCity(p.x,p.y,ctyNames[i]));}
+    // AI routes: each farm → nearest workshop
+    for(let f of S.colony.farms){
+        if(!S.colony.workshops.length)break;
+        let ws=S.colony.workshops.reduce((best,w)=>dd(f.x,f.y,w.x,w.y)<dd(f.x,f.y,best.x,best.y)?w:best);
+        S.colony.routes.push(new ColonyRoute(f,ws,'cotton'));
+    }
+    // AI routes: each workshop → 2 nearest cities
+    for(let ws of S.colony.workshops){
+        let sorted=[...S.colony.cities].sort((a,b)=>dd(ws.x,ws.y,a.x,a.y)-dd(ws.x,ws.y,b.x,b.y));
+        for(let i=0;i<Math.min(2,sorted.length);i++)S.colony.routes.push(new ColonyRoute(ws,sorted[i],'cloth'));
+    }
 }
 window.addEventListener('resize',()=>resize());
 
@@ -1109,6 +1445,17 @@ world.addEventListener('pointerdown',e=>{
         }
         S.placingStation=false;
         document.getElementById('btnStation').style.outline='';
+        return;
+    }
+    // Colonial territory — look but don't touch
+    if(ptIn(p.x,p.y,colonyIslandPoly)){
+        let allCol=[...S.colony.farms,...S.colony.workshops,...S.colony.cities];
+        let nearest=allCol.reduce((best,e2)=>{let d=dd(p.x,p.y,e2.x,e2.y);return d<(best?dd(p.x,p.y,best.x,best.y):Infinity)?e2:best;},null);
+        let name=nearest?(nearest.name||'Cotton Farm'):'the colony';
+        let typeStr=nearest?(nearest.type==='colony_farm'?'cotton farm':nearest.type==='workshop'?'textile workshop':'colonial city'):'territory';
+        document.getElementById('colonyName').textContent=name;
+        document.getElementById('colonyNote').textContent=`This ${typeStr} is part of ${COLONY_NAME}. Cotton is grown here, woven into fine cloth, and traded across the region.`;
+        document.getElementById('colonyDlg').style.display='flex';
         return;
     }
     // Drag from station → station (track) or station → factory (feeder)
@@ -1208,6 +1555,7 @@ function openStationManifest(stn){
     $stnM.style.display='flex';
 }
 document.getElementById('smClose').onclick=()=>{$stnM.style.display='none';};
+document.getElementById('colonyClose').onclick=()=>{document.getElementById('colonyDlg').style.display='none';};
 
 function openStationBuild(from,to,kind){
     S.pending={from,to,kind};
@@ -1465,6 +1813,11 @@ function tick(now){
         S.rail.trackRoutes.forEach(r=>r.update(dt));
         S.rail.feederRoutes.forEach(r=>r.update(dt));
     }
+    // Colony autonomous economy
+    S.colony.farms.forEach(f=>f.update(dt));
+    S.colony.workshops.forEach(w=>w.update(dt));
+    S.colony.cities.forEach(c=>c.update(dt));
+    S.colony.routes.forEach(r=>r.update(dt));
     chkRailroad();chkPhase();chkNorthFactory();
     S.floats.forEach(f=>{f.y-=18*dt;f.life-=dt;});S.floats=S.floats.filter(f=>f.life>0);
     S.smoke.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.sz+=1.5*dt;p.life-=dt;});S.smoke=S.smoke.filter(p=>p.life>0);
@@ -1481,6 +1834,12 @@ function tick(now){
         S.rail.trackRoutes.forEach(r=>r.draw(cx));
         S.rail.feederRoutes.forEach(r=>r.draw(cx));
     }
+    // Colony draws
+    S.colony.routes.forEach(r=>r.draw(cx));
+    S.colony.farms.forEach(f=>f.draw(cx));
+    S.colony.workshops.forEach(w=>w.draw(cx));
+    S.colony.cities.forEach(c=>c.draw(cx));
+    // Home island draws
     S.farms.forEach(f=>f.draw(cx));
     S.factories.forEach(f=>f.draw(cx));
     if(S.rail.unlocked)S.rail.stations.forEach(s=>drawStation(cx,s));
