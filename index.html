@@ -87,7 +87,7 @@ button:disabled{opacity:.4;cursor:default}
 </div>
 
 <div id="colonyDlg" class="panel modal" style="width:320px">
-<h2 style="color:#7A5A2A">&#127807; Colonial Territory</h2>
+<h2 style="color:#7A5A2A">&#127758; Foreign Territory</h2>
 <p id="colonyName" style="font-weight:bold;font-size:1rem;margin-bottom:6px;color:#5A3A10"></p>
 <p id="colonyNote" style="text-align:left;font-size:.9rem;line-height:1.45;color:#666;margin-bottom:6px"></p>
 <p style="text-align:left;font-size:.82rem;color:#888;font-style:italic">You cannot interact with foreign territories.</p>
@@ -1505,7 +1505,7 @@ world.addEventListener('pointerdown',e=>{
         let name=nearest?(nearest.name||'Cotton Farm'):'the colony';
         let typeStr=nearest?(nearest.type==='colony_farm'?'cotton farm':nearest.type==='workshop'?'textile workshop':nearest.type==='colony_port'?'river trading port':'colonial city'):'territory';
         document.getElementById('colonyName').textContent=name;
-        document.getElementById('colonyNote').textContent=`This ${typeStr} is part of ${COLONY_NAME}. Cotton is grown here, woven into fine cloth, and traded across the region.`;
+        document.getElementById('colonyNote').textContent=`This ${typeStr} lies in unknown foreign lands. Your merchants have not yet established trade here.`;
         document.getElementById('colonyDlg').style.display='flex';
         return;
     }
