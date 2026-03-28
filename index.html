@@ -925,8 +925,8 @@ class FeederRoute{
         let sel=this===S.selRoute;
         let isCloth=this.kind==='factory_station'||this.kind==='station_city';
         // Parallel offset for station_factory / factory_station pairs on same link
-        let myOffset=this.kind==='station_factory'&&this._paired?3.5:
-                     this.kind==='factory_station'&&this._paired?-3.5:0;
+        // Both use +3.5: direction reversal of factory_station naturally lands it on the opposite side
+        let myOffset=(this.kind==='station_factory'||this.kind==='factory_station')&&this._paired?3.5:0;
         let x1=this.from.x,y1=this.from.y,x2=this.to.x,y2=this.to.y;
         if(myOffset!==0){
             let px=-(y2-y1)/this.dist*myOffset,py=(x2-x1)/this.dist*myOffset;
