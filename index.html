@@ -767,22 +767,27 @@ class Boat{
 class Port{
     constructor(x,y,side){
         this.type='port';this.x=x;this.y=y;this.side=side;this.r=30;
-        this.baseBid=10+~~(Math.random()*5); // $10–$14, no demand link
+        this.baseBid=10+~~(Math.random()*5); // $10–$14, cloth bid
         this.priceTimer=0;
-        this.priceInterval=28+Math.random()*24; // drift every 28–52s
-        this.clothQ=0;   // units waiting to be shipped
+        this.priceInterval=28+Math.random()*24;
+        this.clothQ=0;   // cloth waiting to be shipped / sent to colony
         this.boatTmr=10;
         this.boats=[];
+        // Post-liberation: cotton transit hub
+        this.cottonQ=0;  // cotton delivered by colonial ships
+        this.gateQ=[];this.gate=null; // outgoing cotton carts to factories
+        this.ask=0;      // cotton is free (arrived via ship)
+        this.shipTmr=18+Math.random()*8; // timer for colony cloth ships
     }
     get clothBid(){return this.baseBid;}
     update(dt){
-        // Price drifts slowly ±1 within $10–$14
+        // Price drifts slowly ±1 within $10–$16
         this.priceTimer+=dt;
         if(this.priceTimer>=this.priceInterval){
             this.priceTimer=0;this.priceInterval=28+Math.random()*24;
             this.baseBid=clamp(this.baseBid+(Math.random()<.5?1:-1),10,16);
         }
-        // Spawn a boat when there's cargo and fewer than 2 active
+        // Decorative boats for home-island trade
         this.boatTmr-=dt;
         if(this.boatTmr<=0&&this.clothQ>0&&this.boats.length<2){
             this.boatTmr=14+Math.random()*8;
@@ -790,36 +795,60 @@ class Port{
         }
         this.boats.forEach(b=>b.update(dt));
         this.boats=this.boats.filter(b=>!b.done);
+        if(!S.colony.liberated)return;
+        // Cotton gate: dispatch cotton to factories
+        if(this.gate){this.gate.tmr-=dt;if(this.gate.tmr<=0){
+            if(this.cottonQ>0){
+                this.cottonQ--;this.gate.cost=0;this.gate.dir=1;this.gate.st='move';this.gate=null;
+            }else{this.gateQ.unshift(this.gate);this.gate=null;}
+        }}
+        if(!this.gate&&this.gateQ.length>0&&this.cottonQ>0){
+            let n=this.gateQ.shift();n.tmr=LOAD_TIME;n.st='loading';this.gate=n;
+        }
+        // Spawn ocean ships carrying cloth to colony when clothQ is stocked
+        this.shipTmr-=dt;
+        if(this.shipTmr<=0&&this.clothQ>=3&&S.colony.ports.length>0&&
+           S.colony.oceanShips.filter(s=>s.carrying==='cloth').length<3){
+            this.shipTmr=18+Math.random()*8;
+            let amt=Math.min(this.clothQ,6);this.clothQ-=amt;
+            let cp=S.colony.ports.reduce((b,p2)=>dd(this.x,this.y,p2.x,p2.y)<dd(this.x,this.y,b.x,b.y)?p2:b,S.colony.ports[0]);
+            let sh=new OceanShip(this.x,this.y,cp.x,cp.y,'cloth');
+            sh.cargo=amt;sh._destPort=cp;
+            S.colony.oceanShips.push(sh);
+        }
     }
     draw(c){
-        let d=this.side==='west'?-1:1; // direction toward water
+        let d=this.side==='west'?-1:1;
         // Pier posts
         c.fillStyle='#3A2810';
         for(let i=0;i<3;i++) c.fillRect(this.x+d*(10+i*14),this.y-9,3,18);
         // Pier deck
         c.fillStyle='#6B4A2A';c.fillRect(this.x+d*8,this.y-5,d*36,10);
-        c.fillStyle='#5A3A18';c.fillRect(this.x+d*40,this.y-7,d*6,14); // dock end
-        // Warehouse building on land side
+        c.fillStyle='#5A3A18';c.fillRect(this.x+d*40,this.y-7,d*6,14);
+        // Warehouse
         c.fillStyle='#8A7858';c.fillRect(this.x-d*22,this.y-12,20,22);
         c.fillStyle='#6A5838';
         c.beginPath();c.moveTo(this.x-d*24,this.y-12);c.lineTo(this.x-d*12,this.y-22);c.lineTo(this.x-d*2,this.y-12);c.fill();
-        // Warehouse door
         c.fillStyle='#4A3820';c.fillRect(this.x-d*17,this.y-4,6,10);
-        // Bollard on pier
         c.fillStyle='#555';c.beginPath();c.arc(this.x+d*14,this.y+6,3,0,Math.PI*2);c.fill();
-        // Cloth waiting indicator
+        // Cloth badge
         if(this.clothQ>0){
             c.fillStyle='#5B6DAF';c.beginPath();c.arc(this.x+d*6,this.y-18,9,0,Math.PI*2);c.fill();
             c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';
             c.fillText(this.clothQ,this.x+d*6,this.y-18);
         }
-        // Price badge above
+        // Cotton badge (post-liberation)
+        if(S.colony.liberated&&this.cottonQ>0){
+            c.fillStyle='#C8922A';c.beginPath();c.arc(this.x-d*6,this.y-18,9,0,Math.PI*2);c.fill();
+            c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';
+            c.fillText(this.cottonQ,this.x-d*6,this.y-18);
+        }
+        // Price badge
         let t='$'+this.baseBid;c.font='bold 11px sans-serif';let tw=c.measureText(t).width+8;
         c.fillStyle='rgba(210,230,245,.94)';c.beginPath();c.roundRect(this.x-tw/2,this.y-38,tw,16,3);c.fill();
         c.strokeStyle='#1A5A8A';c.lineWidth=1;c.stroke();
         c.fillStyle='#1A4A7A';c.textAlign='center';c.textBaseline='middle';
         c.fillText(t,this.x,this.y-30);
-        // Boats
         this.boats.forEach(b=>b.draw(c));
     }
 }
@@ -1176,7 +1205,6 @@ class ColonyPort{
         // Post-liberation: outgoing cloth (acts as Factory cloth side)
         this.clothQ=0;this.clothGateQ=[];this.clothGate=null;
         this.clothAsk=0; // cloth arrives via ships for free
-        this.clothGenT=0; // timer to auto-generate cloth from ocean trade
         // Ocean ship spawning
         this.shipTmr=25+Math.random()*10;
     }
@@ -1191,9 +1219,6 @@ class ColonyPort{
         if(!this.gate&&this.gateQ.length>0){
             let n=this.gateQ.shift();n.tmr=UNLOAD_TIME;n.st='unloading';this.gate=n;
         }
-        // Auto-generate cloth from ocean trade (1 unit every ~10s when cottonQ flowing)
-        this.clothGenT+=dt;
-        if(this.clothGenT>=10&&this.clothQ<10){this.clothQ++;this.clothGenT=0;}
         // Cloth loading gate (outgoing carts to cities)
         if(this.clothGate){this.clothGate.tmr-=dt;if(this.clothGate.tmr<=0){
             if(this.clothQ>0){this.clothQ--;this.clothGate.cost=0;this.clothGate.dir=1;this.clothGate.st='move';}
@@ -1203,18 +1228,16 @@ class ColonyPort{
         if(!this.clothGate&&this.clothGateQ.length>0&&this.clothQ>0){
             let n=this.clothGateQ.shift();n.tmr=LOAD_TIME;n.st='clothLoading';this.clothGate=n;
         }
-        // Spawn ocean ships when cotton available
+        // Spawn ocean ships carrying cotton to home island
         this.shipTmr-=dt;
-        if(this.shipTmr<=0&&this.cottonQ>=3&&S.colony.oceanShips.length<4){
-            this.shipTmr=22+Math.random()*12;
-            let amt=Math.min(this.cottonQ,5);this.cottonQ-=amt;
-            // Sail toward home island (pick nearest home port)
+        if(this.shipTmr<=0&&this.cottonQ>=3&&S.ports.length>0&&
+           S.colony.oceanShips.filter(s=>s.carrying==='cotton').length<3){
+            this.shipTmr=18+Math.random()*8;
+            let amt=Math.min(this.cottonQ,6);this.cottonQ-=amt;
             let hp=S.ports.reduce((b,p2)=>dd(this.x,this.y,p2.x,p2.y)<dd(this.x,this.y,b.x,b.y)?p2:b,S.ports[0]);
-            if(hp){
-                let sh=new OceanShip(this.x,this.y,hp.x,hp.y,'cotton');
-                sh.cargo=amt;sh._colonyPort=this;
-                S.colony.oceanShips.push(sh);
-            }
+            let sh=new OceanShip(this.x,this.y,hp.x,hp.y,'cotton');
+            sh.cargo=amt;sh._destPort=hp;
+            S.colony.oceanShips.push(sh);
         }
     }
     draw(c){
@@ -1328,7 +1351,7 @@ class OceanShip{
         this.x=fromX;this.y=fromY;this.tx=toX;this.ty=toY;
         this.carrying=carrying; // 'cotton' or 'cloth'
         this.cargo=0;
-        this.spd=20;this.done=false;this.returnLaunched=false;
+        this.spd=42;this.done=false;this.returnLaunched=false;
         this.wobble=0;this.wobbleT=0;
     }
     update(dt){
@@ -1730,7 +1753,9 @@ world.addEventListener('pointerdown',e=>{
     let p=cpos(e);
     // Station placement mode
     if(S.placingStation){
-        if(ptIn(p.x,p.y,islandPoly)&&S.cash>=STATION_COST){
+        let onHome=ptIn(p.x,p.y,islandPoly);
+        let onColony=S.colony.liberated&&ptIn(p.x,p.y,colonyIslandPoly);
+        if((onHome||onColony)&&S.cash>=STATION_COST){
             addCash(-STATION_COST);
             S.rail.stations.push(new Station(p.x,p.y));
         }
@@ -1774,6 +1799,11 @@ world.addEventListener('pointerdown',e=>{
     if(hf){startDrag(e,hf,'wool');return;}
     let hfac=hitEntity(p,S.factories);
     if(hfac){startDrag(e,hfac,'cloth');return;}
+    // Home port as cotton source (post-liberation) or cloth source
+    if(S.colony.liberated){
+        let hport=hitEntity(p,S.ports);
+        if(hport){startDrag(e,hport,'wool');return;} // drag to factory = cotton route
+    }
     // Click route?
     let allRoutes=[...S.woolRoutes,...S.clothRoutes,...(S.rail.unlocked?S.rail.feederRoutes:[])];
     let best=null,bd=18;
@@ -1802,11 +1832,13 @@ window.addEventListener('pointerup',e=>{
             if(hcp){let ex=S.woolRoutes.find(r=>r.from===S.dragFrom&&r.to===hcp);
                 if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,hcp,'wool');}
         }else{
+            // Home farm → factory, or home port (cotton) → factory
             let tf=hitEntity(p,S.factories);
             if(tf&&S.dragFrom){
                 let ex=S.woolRoutes.find(r=>r.from===S.dragFrom&&r.to===tf);
                 if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tf,'wool');
-            }else if(S.rail.unlocked&&S.dragFrom){
+            }else if(S.rail.unlocked&&S.dragFrom&&S.dragFrom.type!=='port'){
+                // Rail feeders only from farms, not ports
                 let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
                 if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='farm_station'&&r.from===S.dragFrom&&r.to===hs);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,hs,'farm_station');}
             }
@@ -2159,6 +2191,8 @@ document.getElementById('csFinalOk').onclick=()=>{
     S.cutscene.active=false;S.cutscene.phase=6;
     S.colony.liberated=true;
     S.colony.soldiers=[];S.colony.workshops=[];
+    // Reset colony city supply so captive prices display correctly from the start
+    S.colony.cities.forEach(c=>{c.supply=0;});
 };
 
 function spawnCutsceneSoldiers(){
@@ -2218,19 +2252,19 @@ function tick(now){
     let gamedt=S.cutscene.active?0:dt;
     if(!S.cutscene.active){S.t+=dt;if(S.t>S.day*5){S.day++;$d.textContent=S.day;}}
     if(S.cutscene.active)tickCutscene(dt);
-    // Ocean ships always update (they're in the ocean gap)
+    // Ocean ships always update (they cross the ocean gap)
     S.colony.oceanShips.forEach(sh=>{
         sh.update(dt);
         if(sh.done&&!sh.returnLaunched){
             sh.returnLaunched=true;
-            if(sh.carrying==='cotton'&&sh._colonyPort){
-                // Return voyage carries cloth back
-                let ret=new OceanShip(sh.tx,sh.ty,sh._colonyPort.x,sh._colonyPort.y,'cloth');
-                ret.cargo=sh.cargo;ret._colonyPort=sh._colonyPort;
-                S.colony.oceanShips.push(ret);
-            }else if(sh.carrying==='cloth'&&sh._colonyPort){
-                // Cloth arrives at colony port
-                sh._colonyPort.clothQ=Math.min(sh._colonyPort.clothQ+sh.cargo,12);
+            if(sh.carrying==='cotton'&&sh._destPort){
+                // Cotton arrives at home port — held for factory cart routes
+                sh._destPort.cottonQ=Math.min((sh._destPort.cottonQ||0)+sh.cargo,24);
+                flt(sh._destPort.x,sh._destPort.y-50,'+'+sh.cargo+' cotton','#C8922A');
+            }else if(sh.carrying==='cloth'&&sh._destPort){
+                // Cloth arrives at colony port — held for city cart routes
+                sh._destPort.clothQ=Math.min((sh._destPort.clothQ||0)+sh.cargo,16);
+                flt(sh._destPort.x,sh._destPort.y-50,'+'+sh.cargo+' cloth','#5B6DAF');
             }
         }
     });
