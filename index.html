@@ -94,6 +94,30 @@ button:disabled{opacity:.4;cursor:default}
 <button id="colonyClose" class="go" style="margin-top:8px;width:100%">Close</button>
 </div>
 
+<!-- Cutscene modal 1: saturation crisis -->
+<div id="csModal1" class="panel modal" style="width:360px">
+<h2 style="color:#7A4A2A">The Saturation Crisis</h2>
+<p style="text-align:left;font-size:.93rem;line-height:1.5;margin-bottom:8px">Your warehouses overflow with cloth. Domestic markets are saturated.</p>
+<p style="text-align:left;font-size:.93rem;line-height:1.5;margin-bottom:8px">But your ships have found opportunity abroad…</p>
+<button id="cs1Ok" class="go" style="margin-top:8px">See the Opportunity</button>
+</div>
+
+<!-- Cutscene modal 2: colonial decree -->
+<div id="csDecree" class="panel modal" style="width:380px">
+<h2 style="color:#B35B47;font-size:1.1rem">COLONIAL DECREE</h2>
+<p style="font-size:.82rem;color:#888;margin-bottom:8px;font-style:italic">By Order of the Board of Trade, Year of our Lord 1810</p>
+<p style="text-align:left;font-size:.9rem;line-height:1.5;border:1px solid #B35B47;padding:8px;border-radius:4px;background:rgba(179,91,71,.06)">No local manufacturing shall be permitted in <em>The Bengal Territories</em>. All workshops are hereby dissolved. Raw cotton shall be exported only. Finished cloth shall be imported from the home island exclusively.</p>
+<button id="csDecreeOk" class="go" style="margin-top:10px;background:#B35B47;border-color:#7a3d2e">I Understand</button>
+</div>
+
+<!-- Cutscene modal 3: colony open for business -->
+<div id="csFinal" class="panel modal" style="width:360px">
+<h2 style="color:#4F7942">The Colony is Open</h2>
+<p style="text-align:left;font-size:.93rem;line-height:1.5;margin-bottom:6px">Cotton farms now ask <strong>$1–2</strong>. Build cart routes from cotton farms to colonial ports. Ships will carry cotton to your home factories.</p>
+<p style="text-align:left;font-size:.93rem;line-height:1.5;margin-bottom:6px">Colonial cities are captive markets — they will pay <strong>$15–26</strong> for cloth.</p>
+<button id="csFinalOk" class="go" style="margin-top:8px">Begin Colonial Trade</button>
+</div>
+
 <script>
 // ═══════════════════════════════════════
 // CONFIG
@@ -125,7 +149,8 @@ const S={
     placingStation:false,
     farmDoublings:0,northFactory:false,
     rail:{unlocked:false,announced:false,stations:[],trains:[],trackRoutes:[],feederRoutes:[]},
-    colony:{farms:[],workshops:[],cities:[],routes:[],ports:[]}
+    cutscene:{triggered:false,active:false,phase:0,timer:0,scrollTargetX:0,scrollTargetY:0},
+    colony:{farms:[],workshops:[],cities:[],routes:[],ports:[],liberated:false,soldiers:[],oceanShips:[]}
 };
 
 // ═══════════════════════════════════════
@@ -817,9 +842,14 @@ class Cart{
                 this.p=1;
                 // Arrived at destination
                 if(this.route.kind==='wool'){
-                    this.st='waitQ';this.route.to.gateQ.push(this);
+                    if(this.route.to.type==='colony_port'){
+                        // Cotton delivery to colony port — earn immediately
+                        this.st='waitDeliver';this.deliverTmr=UNLOAD_TIME;
+                    }else{
+                        this.st='waitQ';this.route.to.gateQ.push(this);
+                    }
                 }else{
-                    // Cloth arriving at city
+                    // Cloth arriving at city/port
                     this.st='waitDeliver';this.deliverTmr=UNLOAD_TIME;
                 }
             }else if(this.p<=0){
@@ -835,8 +865,13 @@ class Cart{
             this.deliverTmr-=dt;
             if(this.deliverTmr<=0){
                 let dest=this.route.to;
-                if(dest.type==='port'){
-                    // Deposit at port; boat earns on departure
+                if(this.route.kind==='wool'&&dest.type==='colony_port'){
+                    // Cotton delivery — earn cotton bid
+                    let net=dest.woolBid-this.cost-Math.round(this.route.dist*CPX);
+                    addCash(net);dest.cottonQ++;
+                    flt(dest.x,dest.y-40,net>=0?'+$'+net:'\u2212$'+Math.abs(net),net>=0?'#4F7942':'#B35B47');
+                }else if(dest.type==='port'){
+                    // Deposit at home port; boat earns on departure
                     let net=dest.clothBid-this.cost-Math.round(this.route.dist*CPX);
                     addCash(net);
                     dest.clothQ++;
@@ -926,9 +961,17 @@ class ColonyFarm{
     constructor(x,y){
         this.type='colony_farm';this.x=x;this.y=y;this.r=22;
         this.cottonQ=6+~~(Math.random()*6);this.maxCotton=18;this.regenT=0;
+        // Post-liberation trading (acts like Farm)
+        this.bAsk=1+~~(Math.random()*2);this.str=0;this.gate=null;this.gateQ=[];
     }
+    get ask(){return clamp(this.bAsk+~~(this.str/4),1,5);}
     update(dt){
         if(this.cottonQ<this.maxCotton){this.regenT+=dt;if(this.regenT>2.8){this.cottonQ++;this.regenT=0;}}
+        if(S.colony.liberated){
+            if(this.str>0){this.str-=SDECAY*dt;if(this.str<0)this.str=0;}
+            if(this.gate){this.gate.tmr-=dt;if(this.gate.tmr<=0){this.str+=1;this.gate.cost=this.ask;this.gate.dir=1;this.gate.st='move';this.gate=null;}}
+            if(!this.gate&&this.gateQ.length>0){let n=this.gateQ.shift();n.tmr=LOAD_TIME;n.st='loading';this.gate=n;}
+        }
     }
     draw(c){
         let x=this.x,y=this.y;
@@ -955,6 +998,13 @@ class ColonyFarm{
             c.fillStyle='#5A3A10';c.font='bold 8px sans-serif';c.textAlign='center';c.textBaseline='middle';
             c.fillText(this.cottonQ,x-15,y-16);
         }
+        // Ask price badge when liberated
+        if(S.colony.liberated){
+            let at='$'+this.ask;c.font='bold 11px sans-serif';let aw=c.measureText(at).width+8;
+            c.fillStyle='rgba(245,235,200,.92)';c.beginPath();c.roundRect(x-aw/2,y-38,aw,14,3);c.fill();
+            c.strokeStyle='#8A5A28';c.lineWidth=1;c.stroke();
+            c.fillStyle='#8A5A28';c.textAlign='center';c.textBaseline='middle';c.fillText(at,x,y-31);
+        }
     }
 }
 
@@ -963,46 +1013,77 @@ class Workshop{
         this.type='workshop';this.x=x;this.y=y;this.r=32;
         this.name=name;this.cottonQ=0;this.clothQ=0;this.maxCloth=16;
         this.pt=0;this.procTime=3.0;this.clothAsk=7+~~(Math.random()*3);
+        this.destroyProgress=0;this.destroyed=false;
     }
     get busy(){return this.cottonQ>0&&this.clothQ<this.maxCloth;}
     update(dt){
+        if(this.destroyed)return;
+        if(this.destroyProgress>0){
+            this.destroyProgress=Math.min(1,this.destroyProgress+dt*0.35);
+            if(this.destroyProgress>=1)this.destroyed=true;
+            return;
+        }
         if(this.busy){this.pt+=dt;if(this.pt>=this.procTime){this.pt=0;this.cottonQ--;this.clothQ=Math.min(this.maxCloth,this.clothQ+1);}}
         else this.pt=0;
     }
     draw(c){
+        if(this.destroyed)return;
         let x=this.x,y=this.y;
+        let dmg=this.destroyProgress;
+        // Interpolate wall color: terracotta → charcoal
+        let wr=~~mix(192,55,dmg),wg=~~mix(114,50,dmg),wb=~~mix(72,45,dmg);
+        let wallCol=`rgb(${wr},${wg},${wb})`;
+        let rr=~~mix(168,40,dmg),rg=~~mix(92,38,dmg),rb=~~mix(54,35,dmg);
+        let roofCol=`rgb(${rr},${rg},${rb})`;
         // Shadow
         c.fillStyle='rgba(0,0,0,0.16)';c.fillRect(x-34,y+7,68,7);
-        // Main body — low, wide, terracotta
-        c.fillStyle='#C07248';c.fillRect(x-32,y-10,64,20);
-        // Slightly sloped roof (not peaked — flat with gentle slope)
-        c.fillStyle='#A85C36';
-        c.beginPath();c.moveTo(x-34,y-10);c.lineTo(x-28,y-17);c.lineTo(x+28,y-17);c.lineTo(x+34,y-10);c.fill();
-        c.strokeStyle='#8A4828';c.lineWidth=1.5;c.beginPath();c.moveTo(x-28,y-17);c.lineTo(x+28,y-17);c.stroke();
-        // Open bays on sides — dark interior
+        // Main body
+        c.fillStyle=wallCol;c.fillRect(x-32,y-10,64,20);
+        // Roof (collapses when dmg>0.7)
+        if(dmg<0.7){
+            c.fillStyle=roofCol;
+            c.beginPath();c.moveTo(x-34,y-10);c.lineTo(x-28,y-17);c.lineTo(x+28,y-17);c.lineTo(x+34,y-10);c.fill();
+            c.strokeStyle='rgba(80,40,20,.4)';c.lineWidth=1.5;c.beginPath();c.moveTo(x-28,y-17);c.lineTo(x+28,y-17);c.stroke();
+        }else{
+            c.fillStyle=roofCol;
+            c.beginPath();c.moveTo(x-34,y-10);c.lineTo(x-28,y-14);c.lineTo(x-10,y-12);c.lineTo(x+34,y-10);c.fill();
+        }
+        // Open bays
         c.fillStyle='rgba(40,18,5,.45)';c.fillRect(x-30,y-9,14,18);c.fillRect(x+16,y-9,14,18);
-        // Visible looms — wooden rectangular frames inside
-        c.strokeStyle='#6A4020';c.lineWidth=1.5;
-        for(let i=0;i<4;i++){let lx=x-24+i*12;c.strokeRect(lx,y-8,9,14);c.beginPath();c.moveTo(lx,y-1);c.lineTo(lx+9,y-1);c.stroke();}
-        // Fabric strips hanging from roofline — saffron, indigo, vermillion
-        let strips=['#F09010','#2A1A7A','#CC2222','#F09010','#2A1A7A','#CC2222'];
-        for(let i=0;i<6;i++){c.fillStyle=strips[i];c.fillRect(x-27+i*10,y-10,7,4);}
-        // Workshop name badge
-        c.font='bold 7px sans-serif';let tw2=c.measureText(this.name).width+8;
-        c.fillStyle='rgba(255,248,225,.92)';c.beginPath();c.roundRect(x-tw2/2,y-30,tw2,12,3);c.fill();
-        c.fillStyle='#5A2A10';c.textAlign='center';c.textBaseline='middle';c.fillText(this.name,x,y-24);
-        // Cloth out badge (blue)
-        if(this.clothQ>0){
-            c.fillStyle='#5B6DAF';c.beginPath();c.arc(x+38,y-8,9,0,Math.PI*2);c.fill();
-            c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.clothQ,x+38,y-8);
+        // Looms (gone when dmg>0.4)
+        if(dmg<0.4){
+            c.strokeStyle='#6A4020';c.lineWidth=1.5;
+            for(let i=0;i<4;i++){let lx=x-24+i*12;c.strokeRect(lx,y-8,9,14);c.beginPath();c.moveTo(lx,y-1);c.lineTo(lx+9,y-1);c.stroke();}
         }
-        // Cotton in badge (amber)
-        if(this.cottonQ>0){
-            c.fillStyle='#C8922A';c.beginPath();c.arc(x-38,y-8,9,0,Math.PI*2);c.fill();
-            c.fillStyle='#fff';c.font='bold 9px sans-serif';c.fillText(this.cottonQ,x-38,y-8);
+        // Fabric strips (gone when dmg>0.2)
+        if(dmg<0.2){
+            let strips=['#F09010','#2A1A7A','#CC2222','#F09010','#2A1A7A','#CC2222'];
+            for(let i=0;i<6;i++){c.fillStyle=strips[i];c.fillRect(x-27+i*10,y-10,7,4);}
         }
-        // Processing progress bar
-        if(this.busy){
+        // Cracks when dmg>0.1
+        if(dmg>0.1){
+            c.strokeStyle='rgba(0,0,0,.4)';c.lineWidth=1;
+            c.beginPath();c.moveTo(x-10,y-9);c.lineTo(x-5,y+5);c.lineTo(x-2,y+8);c.stroke();
+            c.beginPath();c.moveTo(x+15,y-8);c.lineTo(x+12,y+3);c.stroke();
+        }
+        // Name badge (only undamaged)
+        if(dmg===0){
+            c.font='bold 7px sans-serif';let tw2=c.measureText(this.name).width+8;
+            c.fillStyle='rgba(255,248,225,.92)';c.beginPath();c.roundRect(x-tw2/2,y-30,tw2,12,3);c.fill();
+            c.fillStyle='#5A2A10';c.textAlign='center';c.textBaseline='middle';c.fillText(this.name,x,y-24);
+        }
+        // Badges only while not yet damaged
+        if(dmg<0.3){
+            if(this.clothQ>0){
+                c.fillStyle='#5B6DAF';c.beginPath();c.arc(x+38,y-8,9,0,Math.PI*2);c.fill();
+                c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.clothQ,x+38,y-8);
+            }
+            if(this.cottonQ>0){
+                c.fillStyle='#C8922A';c.beginPath();c.arc(x-38,y-8,9,0,Math.PI*2);c.fill();
+                c.fillStyle='#fff';c.font='bold 9px sans-serif';c.fillText(this.cottonQ,x-38,y-8);
+            }
+        }
+        if(this.busy&&dmg===0){
             let pct=this.pt/this.procTime;
             c.fillStyle='rgba(0,0,0,.2)';c.fillRect(x-22,y+13,44,3);
             c.fillStyle='#F09010';c.fillRect(x-22,y+13,Math.round(pct*44),3);
@@ -1013,8 +1094,11 @@ class Workshop{
 class ColonyCity{
     constructor(x,y,name){
         this.type='colony_city';this.x=x;this.y=y;this.r=28;
-        this.name=name;this.clothBid=11+~~(Math.random()*4);this.supply=0;
+        this.name=name;this._baseBid=11+~~(Math.random()*4);
+        this.captiveBid=15+~~(Math.random()*12); // $15-26 when colony open
+        this.supply=0;
     }
+    get clothBid(){return S.colony.liberated?this.captiveBid:this._baseBid;}
     get currentBid(){return Math.max(5,Math.round(this.clothBid-this.supply*1.2));}
     update(dt){if(this.supply>0)this.supply=Math.max(0,this.supply-0.05*dt);}
     draw(c){
@@ -1086,29 +1170,91 @@ class ColonyCart{
 class ColonyPort{
     constructor(x,y,name){
         this.type='colony_port';this.x=x;this.y=y;this.r=26;this.name=name;
+        // Post-liberation: incoming cotton (acts as Factory wool side)
+        this.cottonQ=0;this.gateQ=[];this.gate=null;
+        this._woolBidBase=3+~~(Math.random()*2); // $3-4 for cotton
+        // Post-liberation: outgoing cloth (acts as Factory cloth side)
+        this.clothQ=0;this.clothGateQ=[];this.clothGate=null;
+        this.clothAsk=0; // cloth arrives via ships for free
+        this.clothGenT=0; // timer to auto-generate cloth from ocean trade
+        // Ocean ship spawning
+        this.shipTmr=25+Math.random()*10;
     }
-    update(){}
+    get woolBid(){return this._woolBidBase;}
+    update(dt){
+        if(!S.colony.liberated)return;
+        // Cotton unloading gate
+        if(this.gate){this.gate.tmr-=dt;if(this.gate.tmr<=0){
+            this.cottonQ++;
+            this.gate.dir=-1;this.gate.st='move';this.gate=null;
+        }}
+        if(!this.gate&&this.gateQ.length>0){
+            let n=this.gateQ.shift();n.tmr=UNLOAD_TIME;n.st='unloading';this.gate=n;
+        }
+        // Auto-generate cloth from ocean trade (1 unit every ~10s when cottonQ flowing)
+        this.clothGenT+=dt;
+        if(this.clothGenT>=10&&this.clothQ<10){this.clothQ++;this.clothGenT=0;}
+        // Cloth loading gate (outgoing carts to cities)
+        if(this.clothGate){this.clothGate.tmr-=dt;if(this.clothGate.tmr<=0){
+            if(this.clothQ>0){this.clothQ--;this.clothGate.cost=0;this.clothGate.dir=1;this.clothGate.st='move';}
+            else{this.clothGate.st='waitCloth';this.clothGateQ.unshift(this.clothGate);}
+            this.clothGate=null;
+        }}
+        if(!this.clothGate&&this.clothGateQ.length>0&&this.clothQ>0){
+            let n=this.clothGateQ.shift();n.tmr=LOAD_TIME;n.st='clothLoading';this.clothGate=n;
+        }
+        // Spawn ocean ships when cotton available
+        this.shipTmr-=dt;
+        if(this.shipTmr<=0&&this.cottonQ>=3&&S.colony.oceanShips.length<4){
+            this.shipTmr=22+Math.random()*12;
+            let amt=Math.min(this.cottonQ,5);this.cottonQ-=amt;
+            // Sail toward home island (pick nearest home port)
+            let hp=S.ports.reduce((b,p2)=>dd(this.x,this.y,p2.x,p2.y)<dd(this.x,this.y,b.x,b.y)?p2:b,S.ports[0]);
+            if(hp){
+                let sh=new OceanShip(this.x,this.y,hp.x,hp.y,'cotton');
+                sh.cargo=amt;sh._colonyPort=this;
+                S.colony.oceanShips.push(sh);
+            }
+        }
+    }
     draw(c){
         let x=this.x,y=this.y;
-        // Stone quay jutting into river/ocean
+        // Stone quay
         c.fillStyle='rgba(0,0,0,.15)';c.fillRect(x-26,y+6,52,6);
         c.fillStyle='#9A8264';c.fillRect(x-24,y-4,48,10);
-        c.fillStyle='#B09878';c.fillRect(x-24,y-4,48,3); // quay edge
-        // Godown (flat-roof riverside warehouse)
+        c.fillStyle='#B09878';c.fillRect(x-24,y-4,48,3);
+        // Godown
         c.fillStyle='#C08850';c.fillRect(x-20,y-22,32,18);
-        c.fillStyle='#A06830';c.fillRect(x-20,y-22,32,4); // flat roof edge
-        c.fillStyle='rgba(40,18,5,.4)';c.fillRect(x-14,y-18,7,11);c.fillRect(x+2,y-18,7,11); // arched bays
+        c.fillStyle='#A06830';c.fillRect(x-20,y-22,32,4);
+        c.fillStyle='rgba(40,18,5,.4)';c.fillRect(x-14,y-18,7,11);c.fillRect(x+2,y-18,7,11);
         // Mooring posts
         c.fillStyle='#6A4828';c.fillRect(x-26,y-7,4,14);c.fillRect(x+22,y-7,4,14);
-        // Small boat alongside
+        // Small boat
         c.fillStyle='#7A5838';
         c.beginPath();c.moveTo(x-22,y+1);c.lineTo(x-6,y+1);c.lineTo(x-4,y+6);c.lineTo(x-22,y+6);c.closePath();c.fill();
-        c.fillStyle='#5A3E22';c.fillRect(x-16,y-7,2,9); // mast
+        c.fillStyle='#5A3E22';c.fillRect(x-16,y-7,2,9);
         // Port name
         c.font='bold 8px sans-serif';c.textAlign='center';c.textBaseline='bottom';
         c.fillStyle='rgba(255,248,225,.9)';let tw2=c.measureText(this.name).width+8;
         c.beginPath();c.roundRect(x-tw2/2,y-34,tw2,12,3);c.fill();
         c.fillStyle='#5A2A10';c.textBaseline='middle';c.fillText(this.name,x,y-28);
+        if(S.colony.liberated){
+            // Cotton queue badge
+            if(this.cottonQ>0){
+                c.fillStyle='#C8922A';c.beginPath();c.arc(x-30,y-10,9,0,Math.PI*2);c.fill();
+                c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.cottonQ,x-30,y-10);
+            }
+            // Cloth stock badge
+            if(this.clothQ>0){
+                c.fillStyle='#5B6DAF';c.beginPath();c.arc(x+30,y-10,9,0,Math.PI*2);c.fill();
+                c.fillStyle='#fff';c.font='bold 9px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(this.clothQ,x+30,y-10);
+            }
+            // Cotton bid badge
+            let wb='$'+this.woolBid;c.font='bold 10px sans-serif';let wbw=c.measureText(wb).width+8;
+            c.fillStyle='rgba(255,245,215,.92)';c.beginPath();c.roundRect(x-wbw/2,y-50,wbw,14,3);c.fill();
+            c.strokeStyle='#C8922A';c.lineWidth=1;c.stroke();
+            c.fillStyle='#8A4A10';c.textAlign='center';c.textBaseline='middle';c.fillText(wb,x,y-43);
+        }
     }
 }
 
@@ -1126,6 +1272,99 @@ class ColonyRoute{
         c.strokeStyle=this.kind==='cotton'?'rgba(175,128,55,.38)':'rgba(65,75,135,.38)';
         c.lineWidth=1.5;c.setLineDash([4,7]);c.stroke();c.setLineDash([]);
         this.carts.forEach(ct=>ct.draw(c));
+    }
+}
+
+// ═══════════════════════════════════════
+// CUTSCENE ENTITIES
+// ═══════════════════════════════════════
+class Soldier{
+    constructor(x,y,tx,ty){
+        this.x=x;this.y=y;this.tx=tx;this.ty=ty;
+        this.spd=28+Math.random()*14;this.frame=0;this.frameT=0;
+        this.reached=false;this.done=false;this.delay=Math.random()*1.5;
+    }
+    update(dt){
+        if(this.delay>0){this.delay-=dt;return;}
+        this.frameT+=dt;if(this.frameT>.16){this.frame=(this.frame+1)%4;this.frameT=0;}
+        if(!this.reached){
+            let dx=this.tx-this.x,dy=this.ty-this.y,d=Math.hypot(dx,dy),step=this.spd*dt;
+            if(d<=step){this.x=this.tx;this.y=this.ty;this.reached=true;}
+            else{this.x+=dx/d*step;this.y+=dy/d*step;}
+        }
+    }
+    draw(c){
+        if(this.delay>0)return;
+        c.save();c.translate(this.x,this.y);
+        let la=this.reached?0:[0.3,-0.3,0.3,-0.3][this.frame];
+        // Shadow
+        c.fillStyle='rgba(0,0,0,.2)';c.beginPath();c.ellipse(0,14,5,2,0,0,Math.PI*2);c.fill();
+        // Legs
+        c.strokeStyle='#1A1A8A';c.lineWidth=2.5;c.lineCap='round';
+        c.beginPath();c.moveTo(-1,6);c.lineTo(-3+la*6,14);c.stroke();
+        c.beginPath();c.moveTo(1,6);c.lineTo(3-la*6,14);c.stroke();
+        // Red coat body
+        c.fillStyle='#CC1111';c.fillRect(-4,-1,8,9);
+        // White cross-belt
+        c.strokeStyle='rgba(240,240,240,.88)';c.lineWidth=1.5;
+        c.beginPath();c.moveTo(-4,-1);c.lineTo(4,7);c.stroke();
+        c.beginPath();c.moveTo(4,-1);c.lineTo(-4,7);c.stroke();
+        // Musket arm + barrel
+        c.strokeStyle='#CC1111';c.lineWidth=2.5;c.beginPath();c.moveTo(3,1);c.lineTo(7,-3);c.stroke();
+        c.strokeStyle='#5A3A18';c.lineWidth=1.5;c.beginPath();c.moveTo(6,-3);c.lineTo(6,-14);c.stroke();
+        // Head
+        c.fillStyle='#E8B080';c.beginPath();c.arc(0,-4,3.5,0,Math.PI*2);c.fill();
+        // Shako hat
+        c.fillStyle='#111155';c.fillRect(-4.5,-12,9,7);
+        c.fillStyle='#2222AA';c.fillRect(-4.5,-13,9,2);
+        // Red plume
+        c.fillStyle='#DD1111';c.beginPath();c.moveTo(0,-12);c.quadraticCurveTo(4,-19,2,-21);c.quadraticCurveTo(-2,-18,0,-12);c.fill();
+        c.restore();
+    }
+}
+
+class OceanShip{
+    constructor(fromX,fromY,toX,toY,carrying){
+        this.x=fromX;this.y=fromY;this.tx=toX;this.ty=toY;
+        this.carrying=carrying; // 'cotton' or 'cloth'
+        this.cargo=0;
+        this.spd=20;this.done=false;this.returnLaunched=false;
+        this.wobble=0;this.wobbleT=0;
+    }
+    update(dt){
+        this.wobbleT+=dt;this.wobble=Math.sin(this.wobbleT*1.2)*1.8;
+        let dx=this.tx-this.x,dy=this.ty-this.y,d=Math.hypot(dx,dy),step=this.spd*dt;
+        if(d<=step){this.x=this.tx;this.y=this.ty;this.done=true;}
+        else{this.x+=dx/d*step;this.y+=dy/d*step;}
+    }
+    draw(c){
+        c.save();c.translate(this.x,this.y+this.wobble);
+        let goingRight=(this.tx>=this.x);
+        if(!goingRight)c.scale(-1,1);
+        // Shadow
+        c.fillStyle='rgba(0,0,0,.14)';c.beginPath();c.ellipse(0,13,24,4,0,0,Math.PI*2);c.fill();
+        // Hull
+        c.fillStyle='#6A4228';
+        c.beginPath();c.moveTo(-28,4);c.lineTo(28,4);c.lineTo(22,14);c.lineTo(-18,14);c.closePath();c.fill();
+        c.fillStyle='#4A2A18';c.fillRect(-28,2,56,3);
+        // Masts
+        c.fillStyle='#3A2010';c.fillRect(-2,-26,3,28);c.fillRect(12,-18,3,20);
+        // Main sail
+        c.fillStyle='rgba(238,228,204,.94)';
+        c.beginPath();c.moveTo(-1,-24);c.lineTo(15,-8);c.lineTo(-1,2);c.closePath();c.fill();
+        c.strokeStyle='rgba(120,90,50,.4)';c.lineWidth=1;c.stroke();
+        // Fore sail
+        c.beginPath();c.moveTo(13,-16);c.lineTo(25,-5);c.lineTo(13,0);c.closePath();c.fill();c.stroke();
+        // Rigging
+        c.strokeStyle='rgba(80,55,30,.5)';c.lineWidth=1;
+        c.beginPath();c.moveTo(-1,-24);c.lineTo(13,-16);c.stroke();
+        c.beginPath();c.moveTo(-28,2);c.lineTo(-1,-24);c.stroke();
+        // Cargo
+        if(this.cargo>0){
+            c.fillStyle=this.carrying==='cotton'?'#F0EAD8':'#5B6DAF';
+            c.fillRect(-10,0,14,5);
+        }
+        c.restore();
     }
 }
 
@@ -1486,6 +1725,7 @@ function hitEntity(p,list){return list.find(e=>dd(p.x,p.y,e.x,e.y)<(e.r||22)*1.6
 
 world.addEventListener('pointerdown',e=>{
     if(e.target.closest('.panel'))return;
+    if(S.cutscene.active)return; // block canvas input during cutscene
     document.getElementById('hint').style.opacity='0';
     let p=cpos(e);
     // Station placement mode
@@ -1498,8 +1738,24 @@ world.addEventListener('pointerdown',e=>{
         document.getElementById('btnStation').style.outline='';
         return;
     }
-    // Colonial territory — look but don't touch
+    // Colonial territory
     if(ptIn(p.x,p.y,colonyIslandPoly)){
+        if(S.colony.liberated){
+            // Allow building routes from colony farms and ports
+            let hcf=hitEntity(p,S.colony.farms);
+            if(hcf){startDrag(e,hcf,'wool');return;}
+            let hcp=hitEntity(p,S.colony.ports);
+            if(hcp){startDrag(e,hcp,'cloth');return;}
+            // Allow clicking colony routes
+            let colRoutes=[...S.woolRoutes,...S.clothRoutes].filter(r=>
+                r.from.type==='colony_farm'||r.from.type==='colony_port'||
+                r.to.type==='colony_port'||r.to.type==='colony_city');
+            let best=null,bd=18;
+            for(let r of colRoutes){let d2=Math.sqrt(segD2(p,r.from,r.to));if(d2<bd){bd=d2;best=r;}}
+            if(best){S.selRoute=best;openMgr(best);return;}
+            closeAll();S.selRoute=null;return;
+        }
+        // Pre-liberation: look but don't touch
         let allCol=[...S.colony.farms,...S.colony.workshops,...S.colony.cities,...S.colony.ports];
         let nearest=allCol.reduce((best,e2)=>{let d=dd(p.x,p.y,e2.x,e2.y);return d<(best?dd(p.x,p.y,best.x,best.y):Infinity)?e2:best;},null);
         let name=nearest?(nearest.name||'Cotton Farm'):'the colony';
@@ -1540,24 +1796,37 @@ window.addEventListener('pointerup',e=>{
     if(cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId);
     let p=cpos(e);
     if(S.dragType==='wool'){
-        let tf=hitEntity(p,S.factories);
-        if(tf&&S.dragFrom){
-            let ex=S.woolRoutes.find(r=>r.from===S.dragFrom&&r.to===tf);
-            if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tf,'wool');
-        }else if(S.rail.unlocked&&S.dragFrom){
-            // Farm → Station feeder
-            let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
-            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='farm_station'&&r.from===S.dragFrom&&r.to===hs);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,hs,'farm_station');}
+        // Colony cotton route: ColonyFarm → ColonyPort
+        if(S.colony.liberated&&S.dragFrom&&S.dragFrom.type==='colony_farm'){
+            let hcp=hitEntity(p,S.colony.ports);
+            if(hcp){let ex=S.woolRoutes.find(r=>r.from===S.dragFrom&&r.to===hcp);
+                if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,hcp,'wool');}
+        }else{
+            let tf=hitEntity(p,S.factories);
+            if(tf&&S.dragFrom){
+                let ex=S.woolRoutes.find(r=>r.from===S.dragFrom&&r.to===tf);
+                if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tf,'wool');
+            }else if(S.rail.unlocked&&S.dragFrom){
+                let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
+                if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='farm_station'&&r.from===S.dragFrom&&r.to===hs);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,hs,'farm_station');}
+            }
         }
     }else if(S.dragType==='cloth'){
-        // Direct cloth route to city, OR via station (factory_station)
-        let tc=hitEntity(p,S.cities)||hitEntity(p,S.ports);
-        if(tc&&S.dragFrom){
-            let ex=S.clothRoutes.find(r=>r.from===S.dragFrom&&r.to===tc);
-            if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tc,'cloth');
-        }else if(S.rail.unlocked&&S.dragFrom){
-            let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
-            if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='factory_station'&&r.from===S.dragFrom&&r.to===hs);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,hs,'factory_station');}
+        // Colony cloth route: ColonyPort → ColonyCity
+        if(S.colony.liberated&&S.dragFrom&&S.dragFrom.type==='colony_port'){
+            let hcc=hitEntity(p,S.colony.cities);
+            if(hcc){let ex=S.clothRoutes.find(r=>r.from===S.dragFrom&&r.to===hcc);
+                if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,hcc,'cloth');}
+        }else{
+            // Direct cloth route to city, OR via station (factory_station)
+            let tc=hitEntity(p,S.cities)||hitEntity(p,S.ports);
+            if(tc&&S.dragFrom){
+                let ex=S.clothRoutes.find(r=>r.from===S.dragFrom&&r.to===tc);
+                if(ex){S.selRoute=ex;openMgr(ex);}else openBuild(S.dragFrom,tc,'cloth');
+            }else if(S.rail.unlocked&&S.dragFrom){
+                let hs=S.rail.stations.find(s=>dd(p.x,p.y,s.x,s.y)<s.r*1.4);
+                if(hs){let ex=S.rail.feederRoutes.find(r=>r.kind==='factory_station'&&r.from===S.dragFrom&&r.to===hs);if(ex){S.selRoute=ex;openMgr(ex);}else openStationBuild(S.dragFrom,hs,'factory_station');}
+            }
         }
     }else if(S.dragType==='station'){
         // Station → Station: lay track
@@ -1693,9 +1962,11 @@ function openBuild(from,to,kind){
     if(kind==='wool'){askP=from.ask;bidP=to.woolBid;}
     else{askP=from.clothAsk;bidP=to.clothBid;}
     let net=bidP-askP-tc;
-    document.getElementById('bTitle').textContent=kind==='wool'?'New Wool Route':'New Cloth Route';
-    document.getElementById('bFromLabel').textContent=kind==='wool'?'Farm Ask':'Cloth Cost';
-    document.getElementById('bToLabel').textContent=kind==='wool'?'Factory Bid':to.type==='port'?'Port Bid':'City Bid';
+    let fromIsColony=from.type==='colony_farm'||from.type==='colony_port';
+    document.getElementById('bTitle').textContent=kind==='wool'?(fromIsColony?'New Cotton Route':'New Wool Route'):(fromIsColony?'New Cloth Route (Colony)':'New Cloth Route');
+    document.getElementById('bFromLabel').textContent=kind==='wool'?(fromIsColony?'Farm Ask':'Farm Ask'):'Cloth Cost';
+    let toLabel=kind==='wool'?(to.type==='colony_port'?'Port Cotton Bid':'Factory Bid'):(to.type==='port'?'Port Bid':to.type==='colony_city'?'City Cloth Bid':'City Bid');
+    document.getElementById('bToLabel').textContent=toLabel;
     document.getElementById('ba').textContent=askP;
     document.getElementById('bt').textContent=tc;
     document.getElementById('bb').textContent=bidP;
@@ -1843,8 +2114,99 @@ function routeNet(r){
 }
 function chkPhase(){
     if(S.done)return;
-    let hasLosing=[...S.woolRoutes,...S.clothRoutes].some(r=>routeNet(r)<0);
+    // Only check home island routes for the tight-margins tutorial
+    let homeRoutes=[...S.woolRoutes,...S.clothRoutes].filter(r=>
+        r.from.type!=='colony_farm'&&r.from.type!=='colony_port');
+    let hasLosing=homeRoutes.some(r=>routeNet(r)<0);
     if(hasLosing){S.done=true;setTimeout(()=>{$p.style.display='flex';closeAll();},600);}
+}
+
+// ═══════════════════════════════════════
+// CUTSCENE — Day 100
+// ═══════════════════════════════════════
+function chkDay100(){
+    if(S.cutscene.triggered)return;
+    if(S.day>=100){
+        S.cutscene.triggered=true;
+        S.cutscene.active=true;
+        S.cutscene.phase=1;
+        closeAll();
+        document.getElementById('csModal1').style.display='flex';
+    }
+}
+
+document.getElementById('cs1Ok').onclick=()=>{
+    document.getElementById('csModal1').style.display='none';
+    S.cutscene.phase=2;S.cutscene.timer=0;
+    S.cutscene._scrollStartX=world.scrollLeft;
+    S.cutscene._scrollStartY=world.scrollTop;
+    // Target: center on colony territory
+    let colCenterX=COLONY_COAST_X+(TW-COLONY_COAST_X)/2;
+    S.cutscene.scrollTargetX=colCenterX-window.innerWidth/2;
+    S.cutscene.scrollTargetY=H/2-window.innerHeight/2;
+};
+
+document.getElementById('csDecreeOk').onclick=()=>{
+    document.getElementById('csDecree').style.display='none';
+    S.colony.workshops=S.colony.workshops.filter(w=>!w.destroyed);
+    S.colony.routes=[];
+    S.cutscene.phase=5;
+    setTimeout(()=>{document.getElementById('csFinal').style.display='flex';},300);
+};
+
+document.getElementById('csFinalOk').onclick=()=>{
+    document.getElementById('csFinal').style.display='none';
+    S.cutscene.active=false;S.cutscene.phase=6;
+    S.colony.liberated=true;
+    S.colony.soldiers=[];S.colony.workshops=[];
+};
+
+function spawnCutsceneSoldiers(){
+    let cx2=COLONY_COAST_X+8;
+    // One squad per workshop, marching toward it
+    for(let ws of S.colony.workshops){
+        for(let i=0;i<5;i++){
+            let sy=ws.y+(i-2)*22;
+            let sol=new Soldier(cx2,sy,ws.x,ws.y+(i-2)*10);
+            sol.delay=i*0.22+Math.random()*0.2;
+            S.colony.soldiers.push(sol);
+        }
+    }
+    // Background columns marching across territory
+    for(let i=0;i<10;i++){
+        let y=H*0.06+i*(H*0.088);
+        let sol=new Soldier(cx2,y,cx2+190+Math.random()*130,y);
+        sol.delay=i*0.14+0.6;
+        S.colony.soldiers.push(sol);
+    }
+}
+
+function tickCutscene(dt){
+    let cs=S.cutscene;
+    if(cs.phase===2){
+        cs.timer+=dt;
+        let t=Math.min(1,cs.timer/2.5);
+        let ease=t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2; // ease in-out
+        world.scrollLeft=mix(cs._scrollStartX,cs.scrollTargetX,ease);
+        world.scrollTop=mix(cs._scrollStartY,cs.scrollTargetY,ease);
+        if(cs.timer>=2.5){cs.phase=3;cs.timer=0;spawnCutsceneSoldiers();}
+    }else if(cs.phase===3){
+        cs.timer+=dt;
+        S.colony.soldiers.forEach(s=>s.update(dt));
+        // Trigger workshop destruction when its squad arrives
+        for(let ws of S.colony.workshops){
+            if(ws.destroyProgress>0)continue;
+            if(S.colony.soldiers.some(s=>s.reached&&Math.hypot(s.tx-ws.x,s.ty-ws.y)<55)){
+                ws.destroyProgress=0.001;
+            }
+        }
+        let allTriggered=S.colony.workshops.every(w=>w.destroyProgress>0||w.destroyed);
+        let allDone=S.colony.workshops.every(w=>w.destroyed);
+        if(cs.timer>3&&allTriggered&&(allDone||cs.timer>9)){
+            cs.phase=4;
+            setTimeout(()=>{document.getElementById('csDecree').style.display='flex';},500);
+        }
+    }
 }
 
 // ═══════════════════════════════════════
@@ -1853,24 +2215,44 @@ function chkPhase(){
 let last=performance.now(),uiT=0;
 function tick(now){
     let dt=(now-last)/1000;last=now;if(dt>.1)dt=.1;
-    S.t+=dt;if(S.t>S.day*5){S.day++;$d.textContent=S.day;}
-    S.farms.forEach(f=>f.update(dt));
-    S.factories.forEach(f=>f.update(dt));
-    S.cities.forEach(c=>c.update(dt));
-    S.ports.forEach(p=>p.update(dt));
-    S.woolRoutes.forEach(r=>r.update(dt));
-    S.clothRoutes.forEach(r=>r.update(dt));
+    let gamedt=S.cutscene.active?0:dt;
+    if(!S.cutscene.active){S.t+=dt;if(S.t>S.day*5){S.day++;$d.textContent=S.day;}}
+    if(S.cutscene.active)tickCutscene(dt);
+    // Ocean ships always update (they're in the ocean gap)
+    S.colony.oceanShips.forEach(sh=>{
+        sh.update(dt);
+        if(sh.done&&!sh.returnLaunched){
+            sh.returnLaunched=true;
+            if(sh.carrying==='cotton'&&sh._colonyPort){
+                // Return voyage carries cloth back
+                let ret=new OceanShip(sh.tx,sh.ty,sh._colonyPort.x,sh._colonyPort.y,'cloth');
+                ret.cargo=sh.cargo;ret._colonyPort=sh._colonyPort;
+                S.colony.oceanShips.push(ret);
+            }else if(sh.carrying==='cloth'&&sh._colonyPort){
+                // Cloth arrives at colony port
+                sh._colonyPort.clothQ=Math.min(sh._colonyPort.clothQ+sh.cargo,12);
+            }
+        }
+    });
+    S.colony.oceanShips=S.colony.oceanShips.filter(sh=>!(sh.done&&sh.returnLaunched));
+    S.farms.forEach(f=>f.update(gamedt));
+    S.factories.forEach(f=>f.update(gamedt));
+    S.cities.forEach(c=>c.update(gamedt));
+    S.ports.forEach(p=>p.update(gamedt));
+    S.woolRoutes.forEach(r=>r.update(gamedt));
+    S.clothRoutes.forEach(r=>r.update(gamedt));
     if(S.rail.unlocked){
-        S.rail.trackRoutes.forEach(r=>r.update(dt));
-        S.rail.feederRoutes.forEach(r=>r.update(dt));
+        S.rail.trackRoutes.forEach(r=>r.update(gamedt));
+        S.rail.feederRoutes.forEach(r=>r.update(gamedt));
     }
-    // Colony autonomous economy
-    S.colony.farms.forEach(f=>f.update(dt));
-    S.colony.workshops.forEach(w=>w.update(dt));
-    S.colony.cities.forEach(c=>c.update(dt));
-    S.colony.routes.forEach(r=>r.update(dt));
-    S.colony.ports.forEach(p=>p.update(dt));
-    chkRailroad();chkPhase();chkNorthFactory();
+    // Colony economy
+    S.colony.farms.forEach(f=>f.update(gamedt));
+    S.colony.workshops.forEach(w=>w.update(dt)); // real dt so destruction animates
+    S.colony.cities.forEach(c=>c.update(gamedt));
+    S.colony.routes.forEach(r=>r.update(gamedt));
+    S.colony.ports.forEach(p=>p.update(gamedt));
+    chkRailroad();
+    if(!S.cutscene.active){chkPhase();chkNorthFactory();chkDay100();}
     S.floats.forEach(f=>{f.y-=18*dt;f.life-=dt;});S.floats=S.floats.filter(f=>f.life>0);
     S.smoke.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.sz+=1.5*dt;p.life-=dt;});S.smoke=S.smoke.filter(p=>p.life>0);
     if(S.selRoute&&$m.style.display==='flex'){uiT+=dt;if(uiT>.6){uiT=0;openMgr(S.selRoute);}}else uiT=0;
@@ -1881,7 +2263,6 @@ function tick(now){
     S.cities.forEach(c=>c.draw(cx));
     S.woolRoutes.forEach(r=>r.draw(cx));
     S.clothRoutes.forEach(r=>r.draw(cx));
-    // Railroad: tracks behind stations, feeders on top
     if(S.rail.unlocked){
         S.rail.trackRoutes.forEach(r=>r.draw(cx));
         S.rail.feederRoutes.forEach(r=>r.draw(cx));
@@ -1892,6 +2273,8 @@ function tick(now){
     S.colony.workshops.forEach(w=>w.draw(cx));
     S.colony.cities.forEach(c=>c.draw(cx));
     S.colony.ports.forEach(p=>p.draw(cx));
+    S.colony.soldiers.forEach(s=>s.draw(cx));
+    S.colony.oceanShips.forEach(sh=>sh.draw(cx));
     // Home island draws
     S.farms.forEach(f=>f.draw(cx));
     S.factories.forEach(f=>f.draw(cx));
@@ -1911,7 +2294,6 @@ function tick(now){
         cx.fillStyle='#3e3832';cx.font='11px sans-serif';cx.textAlign='left';cx.textBaseline='middle';
         cx.fillText('Cost: $'+cost,e.x+16,e.y+17);
     }
-    // Station placement cursor
     if(S.placingStation){
         cx.strokeStyle='rgba(122,78,42,0.7)';cx.lineWidth=2;cx.setLineDash([4,4]);
         cx.strokeRect(S.mouse.x-18,S.mouse.y-14,36,28);cx.setLineDash([]);
