@@ -35,7 +35,7 @@ button:disabled{opacity:.4;cursor:default}
 </head>
 <body>
 <div id="world"><canvas id="c"></canvas></div>
-<div id="hud" class="panel"><div>Bank: $<span class="cash" id="cash">50</span></div><div>Day <span id="day">1</span></div><button id="btnStation" class="rail" style="display:none;padding:4px 10px;font-size:.85rem" title="Click map to place">🚂 Station ($100)</button></div>
+<div id="hud" class="panel"><div>Bank: $<span class="cash" id="cash">50</span></div><div>Day <span id="day">1</span></div><button id="btnPause" style="padding:4px 10px;font-size:.85rem" title="Pause / Resume">⏸</button><button id="btnStation" class="rail" style="display:none;padding:4px 10px;font-size:.85rem" title="Click map to place">🚂 Station ($100)</button></div>
 <div id="hint" class="hint">Drag from a Farm to a Factory for wool routes. Drag from a Factory to a City for cloth routes.</div>
 
 <div id="buildDlg" class="panel modal">
@@ -149,6 +149,7 @@ const S={
     placingStation:false,
     farmDoublings:0,northFactory:false,
     rail:{unlocked:false,announced:false,stations:[],trains:[],trackRoutes:[],feederRoutes:[]},
+    paused:false,
     cutscene:{triggered:false,active:false,phase:0,timer:0,scrollTargetX:0,scrollTargetY:0},
     colony:{farms:[],workshops:[],cities:[],routes:[],ports:[],liberated:false,soldiers:[],oceanShips:[]}
 };
@@ -2158,7 +2159,7 @@ function chkPhase(){
 // ═══════════════════════════════════════
 function chkDay100(){
     if(S.cutscene.triggered)return;
-    if(S.day>=100){
+    if(S.day>=110){
         S.cutscene.triggered=true;
         S.cutscene.active=true;
         S.cutscene.phase=1;
@@ -2249,6 +2250,7 @@ function tickCutscene(dt){
 let last=performance.now(),uiT=0;
 function tick(now){
     let dt=(now-last)/1000;last=now;if(dt>.1)dt=.1;
+    if(S.paused){requestAnimationFrame(tick);return;}
     let gamedt=S.cutscene.active?0:dt;
     if(!S.cutscene.active){S.t+=dt;if(S.t>S.day*5){S.day++;$d.textContent=S.day;}}
     if(S.cutscene.active)tickCutscene(dt);
@@ -2334,6 +2336,11 @@ function tick(now){
     }
     requestAnimationFrame(tick);
 }
+document.getElementById('btnPause').onclick=()=>{
+    S.paused=!S.paused;
+    document.getElementById('btnPause').textContent=S.paused?'▶':'⏸';
+    if(!S.paused)last=performance.now(); // avoid dt spike on resume
+};
 initWorld();requestAnimationFrame(tick);
 </script>
 
